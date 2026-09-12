@@ -26,14 +26,7 @@ const TEAM_ACCENTS = [
   { ring: "ring-[#0d9488]/30", text: "text-[#0d9488]", bar: "bg-[#0d9488]" },
 ];
 
-const DEFAULT_TEAMS = [
-  { team_name: "STRIKERS", remaining_purse: 875000, starting_purse: 1000000 },
-  { team_name: "WARRIORS", remaining_purse: 640000, starting_purse: 1000000 },
-  { team_name: "TITANS", remaining_purse: 520000, starting_purse: 1000000 },
-  { team_name: "ROYALS", remaining_purse: 410000, starting_purse: 1000000 },
-  { team_name: "CHALLENGERS", remaining_purse: 385000, starting_purse: 1000000 },
-  { team_name: "SUPER KINGS", remaining_purse: 295000, starting_purse: 1000000 },
-];
+const DEFAULT_TEAMS = [];
 
 const DEFAULT_PLAYER_PHOTO =
   "https://images.unsplash.com/photo-1607627000458-210e8d2bdb1d?w=400&h=400&fit=crop&crop=faces";
@@ -52,11 +45,9 @@ export default function PublicLiveView() {
       id: state.current_player_id,
       player_name: state.player_name || "Rohit Sharma",
       category: state.category || "Category A",
-      player_role: state.player_role || state.batting_style || "Right Hand Batter",
-      base_price: state.base_price || 200000,
+      player_role: state.player_role || state.batting_style || "",
+      base_price: state.base_price || 0,
       photo_url: state.photo_url,
-      player_number: state.player_number || "1023",
-      nationality: state.nationality || "India",
     };
   }, [state]);
 
@@ -96,7 +87,7 @@ export default function PublicLiveView() {
         setState((prev) => {
           setCelebration({
             type: "SOLD",
-            teamName: payload?.team_name || payload?.sold_team_name || prev?.highest_team_name || "STRIKERS",
+            teamName: payload?.team_name || payload?.sold_team_name || prev?.highest_team_name || "",
             amount: payload?.sold_amount || payload?.bid_amount || prev?.current_bid || 0,
           });
           return payload.state || prev;
@@ -138,32 +129,31 @@ export default function PublicLiveView() {
     );
   }
 
-  const currentBid = Number(state?.current_bid || currentPlayer?.base_price || 640000);
-  const timeLeft = state?.time_left ?? state?.timer_seconds ?? 18;
+  const currentBid = Number(state?.current_bid || currentPlayer?.base_price || 0);
 
-  const rawTeams = auction?.teams?.length ? auction.teams : DEFAULT_TEAMS;
+  const rawTeams = snapshot?.teamsSummary?.length ? snapshot.teamsSummary : (auction?.teams?.length ? auction.teams : DEFAULT_TEAMS);
   const teams = rawTeams.map((t, i) => ({
     ...t,
     accent: TEAM_ACCENTS[i % TEAM_ACCENTS.length],
     resolvedLogo: t.logo_url ? getImageUrl(t.logo_url) : dicebearLogo(t.team_name),
     displayPurse: t.remaining_purse ?? t.remaining_budget ?? 0,
-    startingPurse: t.starting_purse ?? t.total_budget ?? 1000000,
+    startingPurse: t.total_purse ?? t.starting_purse ?? t.total_budget ?? 0,
   }));
 
-  const recentUpdates = state?.recent_updates || auction?.recent_updates || [
-    { time: "10:24 PM", team_name: "WARRIORS", amount: 640000 },
-    { time: "10:23 PM", team_name: "STRIKERS", amount: 580000 },
-    { time: "10:22 PM", team_name: "TITANS", amount: 520000 },
-    { time: "10:21 PM", team_name: "ROYALS", amount: 460000 },
-    { time: "10:20 PM", message: "Auction started for Rohit Sharma" },
-  ];
+  const recentUpdates = (snapshot?.soldPlayers || []).slice(0, 5).map(p => ({
+    time: new Date(p.sold_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    team_name: p.sold_team_name,
+    amount: p.sold_price,
+    message: p.player_name
+  }));
 
-  const playerQueue = auction?.player_queue || state?.player_queue || [
-    { id: 1, player_name: "Virat Kohli", category: "Category A", role: "Right Hand Batter" },
-    { id: 2, player_name: "Jasprit Bumrah", category: "Category A", role: "Right Arm Fast" },
-    { id: 3, player_name: "Suryakumar Yadav", category: "Category B", role: "Right Hand Batter" },
-    { id: 4, player_name: "Rishabh Pant", category: "Category B", role: "Wicket Keeper" },
-  ];
+  const playerQueue = (snapshot?.pendingPlayers || []).slice(0, 5).map(p => ({
+    id: p.id,
+    player_name: p.player_name,
+    category: p.category,
+    role: p.player_role,
+    photo_url: p.photo_url
+  }));
 
   const playerPhoto = currentPlayer?.photo_url
     ? getImageUrl(currentPlayer.photo_url)
@@ -187,9 +177,17 @@ export default function PublicLiveView() {
           </div>
 
           <div className="flex items-center justify-center gap-2">
+            <a
+              href={`/live/${publicSlug}/dashboard`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/90 px-3.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-700 shadow-sm hover:border-[#e91e63] hover:text-[#e91e63]"
+            >
+              Public Dashboard
+            </a>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/90 px-3.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-700 shadow-sm">
               <span className="h-2 w-2 rounded-full bg-red-500 animate-ping" />
-              Public View
+              Live View
             </span>
             <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400 shadow-sm">
               Auction ID <strong className="ml-1 text-slate-700">#{auction?.auction_code || "AUC2025"}</strong>
@@ -229,14 +227,14 @@ export default function PublicLiveView() {
                   <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                     <div>
                       <h2 className="text-2xl font-black text-slate-900 sm:text-3xl lg:text-4xl">
-                        {currentPlayer?.player_name || "Rohit Sharma"}
+                        {currentPlayer?.player_name || "-"}
                       </h2>
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         <span className="rounded-full bg-pink-100/70 px-2.5 py-0.5 text-[10px] font-bold text-[#e91e63]">
-                          {currentPlayer?.category || "Category A"}
+                          {currentPlayer?.category || "-"}
                         </span>
                         <span className="rounded-full bg-emerald-100/70 px-2.5 py-0.5 text-[10px] font-bold text-[#00c853]">
-                          {currentPlayer?.player_role || "Right Hand Batter"}
+                          {currentPlayer?.player_role || "-"}
                         </span>
                       </div>
 
@@ -245,12 +243,12 @@ export default function PublicLiveView() {
                           Base Price
                         </span>
                         <span className="text-2xl font-black text-[#e91e63] sm:text-3xl">
-                          ₹ {formatAmount(currentPlayer?.base_price || 200000)}
+                          ₹ {formatAmount(currentPlayer?.base_price || 0)}
                         </span>
                       </div>
                     </div>
 
-                    {/* Current Bid & Timer Box */}
+                    {/* Current Bid Box */}
                     <div className="flex flex-col items-start sm:items-end gap-2 rounded-2xl bg-slate-50/80 p-3 sm:bg-transparent sm:p-0">
                       <div>
                         <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400 sm:text-right">
@@ -260,46 +258,34 @@ export default function PublicLiveView() {
                           ₹ {formatAmount(currentBid)}
                         </span>
                       </div>
-
-                      <div className="mt-1 flex items-center gap-2 rounded-xl bg-emerald-50/70 border border-emerald-100/80 px-3 py-1.5">
-                        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-rose-500 shadow-sm border border-rose-100">
-                          <Clock size={16} />
+                      
+                      {state?.highest_team_name && (
+                        <div className="mt-1 flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 shadow-sm">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">By</span>
+                          <span className="text-[11px] font-black uppercase text-slate-900">{state.highest_team_name}</span>
                         </div>
-                        <div className="flex flex-col">
-                          <span className="text-[7px] font-black uppercase tracking-wider text-slate-400">Time Left</span>
-                          <span className="text-sm font-black tabular-nums text-slate-900">
-                            {String(Math.floor(timeLeft / 60)).padStart(2, "0")}:
-                            {String(timeLeft % 60).padStart(2, "0")}
-                          </span>
-                        </div>
-                      </div>
+                      )}
                     </div>
                   </div>
 
                   {/* Additional Metadata footer grid */}
-                  <div className="mt-6 grid grid-cols-2 gap-2 border-t border-slate-200/60 pt-3 text-left sm:grid-cols-4">
+                  <div className="mt-6 grid grid-cols-3 gap-2 border-t border-slate-200/60 pt-3 text-left">
                     <div>
                       <span className="block text-[9px] font-bold text-slate-400">Player ID</span>
                       <span className="text-xs font-black text-slate-800">
-                        #{currentPlayer?.player_number || "1023"}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="block text-[9px] font-bold text-slate-400">Nationality</span>
-                      <span className="text-xs font-black text-slate-800">
-                        {currentPlayer?.nationality || "India"}
+                        #{currentPlayer?.id || "-"}
                       </span>
                     </div>
                     <div>
                       <span className="block text-[9px] font-bold text-slate-400">Category</span>
                       <span className="text-xs font-black text-slate-800">
-                        {currentPlayer?.category?.replace("Category ", "") || "A"}
+                        {currentPlayer?.category?.replace("Category ", "") || "-"}
                       </span>
                     </div>
                     <div>
                       <span className="block text-[9px] font-bold text-slate-400">Role</span>
                       <span className="truncate text-xs font-black text-slate-800 block">
-                        {currentPlayer?.player_role || "Right Hand Batter"}
+                        {currentPlayer?.player_role || "-"}
                       </span>
                     </div>
                   </div>
@@ -330,7 +316,7 @@ export default function PublicLiveView() {
                             <strong className="font-bold text-[#00c853]">₹ {formatAmount(u.amount)}</strong>
                           </span>
                         ) : (
-                          <span className="text-slate-500">{u.message}</span>
+                          <span className="text-slate-500">Sold: {u.message}</span>
                         )}
                       </div>
                     </div>
@@ -388,12 +374,15 @@ export default function PublicLiveView() {
 
             <div className="space-y-3">
               {teams.map((team, idx) => {
+                const isLeading = String(state?.highest_team_id) === String(team.id);
                 const pct =
                   team.startingPurse && team.startingPurse > 0
                     ? Math.max(0, Math.min(100, (team.displayPurse / team.startingPurse) * 100))
                     : 100;
                 return (
-                  <div key={idx} className="group rounded-2xl border border-slate-100 bg-white/90 p-3 shadow-2xs transition-all hover:border-slate-200">
+                  <div key={idx} className={`group rounded-2xl border p-3 shadow-2xs transition-all hover:border-slate-300 ${
+                    isLeading ? "border-[#8CC63F] bg-[#8CC63F]/10 ring-1 ring-[#8CC63F]/50" : "border-slate-100 bg-white/90"
+                  }`}>
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex min-w-0 items-center gap-2.5">
                         <div className={`flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-50 ring-2 ${team.accent.ring}`}>

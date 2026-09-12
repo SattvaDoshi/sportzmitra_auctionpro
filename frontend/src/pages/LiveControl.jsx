@@ -387,7 +387,7 @@ export default function LiveControl() {
 
   async function selectTeam(team) {
     setTeamId(String(team.id));
-    setTeamSearch(team.team_name || team.short_name || "");
+    setTeamSearch(""); // Clear search to keep full list visible
     setRecentTeams((prev) => {
       const next = [team, ...prev.filter((t) => t.id !== team.id)];
       return next.slice(0, 6);

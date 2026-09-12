@@ -12,6 +12,7 @@ import ReportsPage from "./pages/ReportsPage.jsx";
 import LiveControl from "./pages/LiveControl.jsx";
 import PublicLiveView from "./pages/PublicLiveView.jsx";
 import PublicDashboardView from "./pages/PublicDashboardView.jsx";
+import YoutubeOverlay from "./pages/YoutubeOverlay.jsx";
 
 export default function App() {
   return (
@@ -48,6 +49,7 @@ export default function App() {
         path="/live/:publicSlug/dashboard"
         element={<PublicDashboardView />}
       />
+      <Route path="/live/:publicSlug/overlay" element={<YoutubeOverlay />} />
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   );

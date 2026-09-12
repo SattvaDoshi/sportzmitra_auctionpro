@@ -200,7 +200,7 @@ export default function PublicDashboardView() {
           )}
 
           {/* Tab Views */}
-          {activeTab === "teams" && <TeamsTable rows={data.teamsSummary || data.teams || []} />}
+          {activeTab === "teams" && <TeamsTable rows={data.teamsSummary || data.teams || []} auction={data.auction} soldPlayers={data.soldPlayers || []} />}
           {activeTab === "sold" && <PlayerTable rows={filterRows(data.soldPlayers)} type="sold" />}
           {activeTab === "unsold" && <PlayerTable rows={filterRows(data.unsoldPlayers)} type="unsold" />}
           {activeTab === "pending" && <PlayerTable rows={filterRows(data.pendingPlayers)} type="pending" />}
@@ -277,33 +277,41 @@ function PlayerTable({ rows = [], type }) {
   );
 }
 
-function TeamsTable({ rows = [] }) {
+function TeamsTable({ rows = [], auction, soldPlayers = [] }) {
   if (!rows.length) return <Empty text="No teams available" />;
+
+  const squadLimit = auction?.players_per_team || auction?.max_players_per_team || 0;
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {rows.map((t) => (
-        <div key={t.id} className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 transition-all hover:border-[#8CC63F] hover:shadow-md">
-          <div className="flex items-center gap-3.5">
-            <TeamLogo team={t} size="sm" />
-            <div>
-              <h3 className="text-base font-black uppercase tracking-wide text-slate-900 group-hover:text-[#629221]">
-                {t.team_name}
-              </h3>
-              <p className="text-xs font-bold text-slate-400">{t.owner_name || "Team Owner"}</p>
+      {rows.map((t) => {
+        const purchased = soldPlayers.filter(p => p.sold_team_id === t.id).length;
+        const slotsLeft = Math.max(0, squadLimit - purchased);
+        const maxBid = t.max_bid_allowed ?? t.remaining_purse;
+
+        return (
+          <div key={t.id} className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 transition-all hover:border-[#8CC63F] hover:shadow-md">
+            <div className="flex items-center gap-3.5">
+              <TeamLogo team={t} size="sm" />
+              <div>
+                <h3 className="text-base font-black uppercase tracking-wide text-slate-900 group-hover:text-[#629221]">
+                  {t.team_name}
+                </h3>
+                <p className="text-xs font-bold text-slate-400">{t.owner_name || "Team Owner"}</p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+              <Mini label="Purse" value={`₹${money(t.total_purse)}`} />
+              <Mini label="Spent" value={`₹${money(t.used_amount)}`} />
+              <Mini label="Balance" value={`₹${money(t.remaining_purse)}`} highlight />
+              <Mini label="Max Bid" value={`₹${money(maxBid)}`} />
+              <Mini label="Squad Size" value={purchased} />
+              <Mini label="Slots Left" value={slotsLeft} />
             </div>
           </div>
-
-          <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-            <Mini label="Purse" value={`₹${money(t.total_purse)}`} />
-            <Mini label="Spent" value={`₹${money(t.used_amount)}`} />
-            <Mini label="Balance" value={`₹${money(t.remaining_purse)}`} highlight />
-            <Mini label="Max Bid" value={`₹${money(t.max_bid_allowed ?? t.remaining_purse)}`} />
-            <Mini label="Squad Size" value={t.players_purchased || 0} />
-            <Mini label="Slots Left" value={t.pending_slots || 0} />
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

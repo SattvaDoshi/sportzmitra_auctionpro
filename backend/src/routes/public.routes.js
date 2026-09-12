@@ -3,6 +3,7 @@ const pool = require("../config/db");
 const { mapPublicSnapshot } = require("../utils/spResults");
 const { sendError } = require("../utils/errors");
 const { getViewerCount } = require("../socket");
+const { calculateMaxBids } = require("../utils/maxBid");
 
 const router = express.Router();
 
@@ -16,6 +17,19 @@ async function getPublicSnapshotBySlug(publicSlug) {
 
   const [resultSets] = await pool.query("CALL sp_get_public_auction_snapshot(?)", [auctionRef.id]);
   const snapshot = mapPublicSnapshot(resultSets);
+
+  try {
+     const maxBids = await calculateMaxBids(pool, auctionRef.id, snapshot.state);
+     const applyMaxBids = (t) => {
+       const mb = maxBids.find(b => b.team_id === t.id);
+       return { ...t, max_bid_allowed: mb ? mb.max_bid : t.remaining_purse };
+     };
+     if (snapshot.teamsSummary) snapshot.teamsSummary = snapshot.teamsSummary.map(applyMaxBids);
+     if (snapshot.teams) snapshot.teams = snapshot.teams.map(applyMaxBids);
+  } catch (e) {
+     console.error("Failed to augment max bids in public snapshot", e);
+  }
+
   snapshot.viewerCount = getViewerCount(auctionRef.id);
   return snapshot;
 }

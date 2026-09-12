@@ -67,8 +67,7 @@ function useNavItems({ auctionId, organizationId, publicSlug }) {
       },
       { label: "Reports", icon: BarChart3, to: auctionId ? `${auctionBase}/reports` : "#", scope: "auction" },
       { label: "Public View", icon: Eye, to: publicSlug ? `/live/${publicSlug}` : "#", scope: "auction" },
-      // Not a route — clicking this opens the LiveAuctionTicker as a modal overlay instead of navigating.
-      { label: "YouTube Overlay", icon: Radio, scope: "auction", isOverlay: true },
+      { label: "YouTube Overlay", icon: Radio, to: publicSlug ? `/live/${publicSlug}/overlay` : "#", scope: "auction", external: true },
     ];
   }, [auctionId, organizationId, publicSlug]);
 }
@@ -440,6 +439,14 @@ function NavItem({ item, active, onNavigate, onOverlayOpen }) {
       <button type="button" onClick={onOverlayOpen} className={sharedClassName}>
         {innerContent}
       </button>
+    );
+  }
+
+  if (item.external) {
+    return (
+      <a href={item.to} target="_blank" rel="noopener noreferrer" className={sharedClassName}>
+        {innerContent}
+      </a>
     );
   }
 

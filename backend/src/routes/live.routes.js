@@ -9,9 +9,26 @@ const { calculateMaxBids, getTeamMaxBid } = require("../utils/maxBid");
 
 const router = express.Router();
 
+async function augmentSnapshotWithMaxBids(snapshot, auctionId) {
+  if (!snapshot) return snapshot;
+  try {
+     const maxBids = await calculateMaxBids(pool, auctionId, snapshot.state);
+     const applyMaxBids = (t) => {
+       const mb = maxBids.find(b => b.team_id === t.id);
+       return { ...t, max_bid_allowed: mb ? mb.max_bid : t.remaining_purse };
+     };
+     if (snapshot.teamsSummary) snapshot.teamsSummary = snapshot.teamsSummary.map(applyMaxBids);
+     if (snapshot.teams) snapshot.teams = snapshot.teams.map(applyMaxBids);
+  } catch (e) {
+     console.error("Failed to augment max bids", e);
+  }
+  return snapshot;
+}
+
 async function callSnapshotProcedure(sql, params) {
   const [resultSets] = await pool.query(sql, params);
-  return mapPublicSnapshot(resultSets);
+  const snapshot = mapPublicSnapshot(resultSets);
+  return await augmentSnapshotWithMaxBids(snapshot, params[0]);
 }
 
 
@@ -136,7 +153,8 @@ async function autoSelectNextIfRandom(auctionId, userId) {
 
 async function loadSnapshot(auctionId) {
   const [resultSets] = await pool.query("CALL sp_get_public_auction_snapshot(?)", [auctionId]);
-  return mapPublicSnapshot(resultSets);
+  const snapshot = mapPublicSnapshot(resultSets);
+  return await augmentSnapshotWithMaxBids(snapshot, auctionId);
 }
 
 
@@ -518,14 +536,15 @@ router.get(
 
       // Get the current active player from auction_state (if any)
       const [[stateRow]] = await pool.query(
-        `SELECT s.current_player_id, p.base_price, p.category
+        `SELECT s.current_player_id, p.base_price, p.category, p.status
          FROM auction_state s
          LEFT JOIN players p ON p.id = s.current_player_id
          WHERE s.auction_id = ?`,
         [auctionId]
       );
 
-      const currentPlayer = stateRow?.current_player_id
+      const isAbsolute = req.query.absolute === 'true';
+      const currentPlayer = !isAbsolute && stateRow?.current_player_id && ['IN_AUCTION', 'AVAILABLE'].includes(stateRow.status)
         ? { base_price: stateRow.base_price, category: stateRow.category }
         : null;
 

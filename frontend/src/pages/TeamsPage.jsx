@@ -81,7 +81,7 @@ export default function TeamsPage() {
         api.get(`/auctions/${auctionId}/dashboard`),
         api.get(`/teams/auction/${auctionId}`),
         api.get(`/teams/recent`).catch(() => ({ data: [] })),
-        api.get(`/live/${auctionId}/max-bid`).catch(() => ({ data: { maxBidMap: {} } })),
+        api.get(`/live/${auctionId}/max-bid?absolute=true`).catch(() => ({ data: { maxBidMap: {} } })),
       ]);
       setAuction(dash.data.auction);
       setTeams(teamRes.data || []);

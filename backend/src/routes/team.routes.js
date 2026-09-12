@@ -60,6 +60,17 @@ router.get("/auction/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
       [auctionId]
     );
 
+    const [soldRows] = await pool.query(
+      `SELECT sold_team_id AS team_id, COUNT(*) AS cnt
+       FROM players
+       WHERE auction_id = ? AND status = 'SOLD' AND sold_team_id IS NOT NULL
+       GROUP BY sold_team_id`,
+      [auctionId]
+    );
+
+    const soldByTeam = {};
+    for (const row of soldRows) soldByTeam[row.team_id] = Number(row.cnt);
+
     const teams = rows.map((team) => {
       const totalPurse =
         Number(
@@ -87,7 +98,7 @@ router.get("/auction/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
         balance_purse: balancePurse,
         remaining_purse: balancePurse,
         used_purse: Math.max(totalPurse - balancePurse, 0),
-        players_bought: Number(team.players_bought || 0),
+        players_bought: Number(soldByTeam[team.id] || team.players_bought || 0),
       };
     });
 
