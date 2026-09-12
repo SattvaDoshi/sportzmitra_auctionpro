@@ -18,6 +18,7 @@ import {
   Bell,
   CircleHelp,
 } from "lucide-react";
+import LiveAuctionTicker from "./LiveAuction";
 
 /* =========================================================
    FONTS — Space Grotesk for numbers/headlines, Inter for body.
@@ -66,6 +67,8 @@ function useNavItems({ auctionId, organizationId, publicSlug }) {
       },
       { label: "Reports", icon: BarChart3, to: auctionId ? `${auctionBase}/reports` : "#", scope: "auction" },
       { label: "Public View", icon: Eye, to: publicSlug ? `/live/${publicSlug}` : "#", scope: "auction" },
+      // Not a route — clicking this opens the LiveAuctionTicker as a modal overlay instead of navigating.
+      { label: "YouTube Overlay", icon: Radio, scope: "auction", isOverlay: true },
     ];
   }, [auctionId, organizationId, publicSlug]);
 }
@@ -112,10 +115,14 @@ export default function AdminLayout({
   organizationId,
   publicSlug,
   liveSummary,
+  currentPlayer,
+  nextPlayer,
+  youtubeUrl,
 }) {
   const navigate = useNavigate();
   const navItems = useNavItems({ auctionId, organizationId, publicSlug });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [liveOverlayOpen, setLiveOverlayOpen] = useState(false);
 
   const globalItems = navItems.filter((item) => item.scope === "global");
   const auctionItems = navItems.filter((item) => item.scope === "auction");
@@ -124,6 +131,11 @@ export default function AdminLayout({
     e.preventDefault();
     localStorage.clear();
     navigate("/login");
+  };
+
+  const openLiveOverlay = () => {
+    setMobileMenuOpen(false);
+    setLiveOverlayOpen(true);
   };
 
   return (
@@ -147,7 +159,13 @@ export default function AdminLayout({
           {/* Navigation */}
           <div className="flex-1 overflow-y-auto px-3 pt-5">
             <NavGroup label="Workspace" items={globalItems} active={active} />
-            <NavGroup label="This auction" items={auctionItems} active={active} className="mt-6" />
+            <NavGroup
+              label="This auction"
+              items={auctionItems}
+              active={active}
+              onOverlayOpen={openLiveOverlay}
+              className="mt-6"
+            />
 
             {/* <div className="mt-6 space-y-0.5 border-t border-white/[0.07] pt-4">
               <UtilityLink icon={CircleHelp} label="Help Center" />
@@ -286,6 +304,7 @@ export default function AdminLayout({
                 items={auctionItems}
                 active={active}
                 onNavigate={() => setMobileMenuOpen(false)}
+                onOverlayOpen={openLiveOverlay}
                 className="mt-6"
               />
             </div>
@@ -327,6 +346,30 @@ export default function AdminLayout({
           })}
         </div>
       </nav>
+
+      {/* =========================================================
+          LIVE AUCTION / YOUTUBE OVERLAY
+          LiveAuctionTicker doesn't manage its own modal chrome — it's a
+          normal inline block — so AdminLayout supplies the backdrop,
+          centering, and close button here.
+      ========================================================== */}
+      {liveOverlayOpen && (
+        <div
+          className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
+          onClick={() => setLiveOverlayOpen(false)}
+        >
+          <div className="relative w-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setLiveOverlayOpen(false)}
+              className="absolute -right-3 -top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white text-slate-700 shadow-lg transition hover:bg-slate-100"
+            >
+              <X size={18} />
+            </button>
+            <LiveAuctionTicker currentPlayer={currentPlayer} nextPlayer={nextPlayer} youtubeUrl={youtubeUrl} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -335,7 +378,7 @@ export default function AdminLayout({
    NAV GROUP + ITEM
 ========================================================= */
 
-function NavGroup({ label, items, active, onNavigate, className = "" }) {
+function NavGroup({ label, items, active, onNavigate, onOverlayOpen, className = "" }) {
   if (!items.length) return null;
 
   return (
@@ -343,30 +386,34 @@ function NavGroup({ label, items, active, onNavigate, className = "" }) {
       <p className="px-3 pb-2 text-[10px] font-semibold text-emerald-200/30">{label}</p>
       <div className="space-y-0.5">
         {items.map((item) => (
-          <NavItem key={item.label} item={item} active={active} onNavigate={onNavigate} />
+          <NavItem
+            key={item.label}
+            item={item}
+            active={active}
+            onNavigate={onNavigate}
+            onOverlayOpen={onOverlayOpen}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function NavItem({ item, active, onNavigate }) {
+function NavItem({ item, active, onNavigate, onOverlayOpen }) {
   const Icon = item.icon;
   const isSelected = active === item.label;
-  const isDisabled = item.to === "#";
+  const isDisabled = !item.isOverlay && item.to === "#";
 
-  return (
-    <NavLink
-      to={item.to}
-      onClick={onNavigate}
-      className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-semibold transition-colors ${
-        isSelected
-          ? "bg-white text-[#03251b]"
-          : isDisabled
-          ? "pointer-events-none text-emerald-100/20"
-          : "text-emerald-100/55 hover:bg-white/[0.06] hover:text-white"
-      }`}
-    >
+  const sharedClassName = `group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13px] font-semibold transition-colors ${
+    isSelected
+      ? "bg-white text-[#03251b]"
+      : isDisabled
+      ? "pointer-events-none text-emerald-100/20"
+      : "text-emerald-100/55 hover:bg-white/[0.06] hover:text-white"
+  }`;
+
+  const innerContent = (
+    <>
       <Icon size={17} strokeWidth={isSelected ? 2.5 : 2} />
       <span className="flex-1 truncate">{item.label}</span>
 
@@ -384,6 +431,21 @@ function NavItem({ item, active, onNavigate }) {
       {!isSelected && !item.isLive && !isDisabled && (
         <ChevronRight size={13} className="opacity-0 transition group-hover:opacity-35" />
       )}
+    </>
+  );
+
+  // Opens the LiveAuctionTicker modal instead of navigating to a route.
+  if (item.isOverlay) {
+    return (
+      <button type="button" onClick={onOverlayOpen} className={sharedClassName}>
+        {innerContent}
+      </button>
+    );
+  }
+
+  return (
+    <NavLink to={item.to} onClick={onNavigate} className={sharedClassName}>
+      {innerContent}
     </NavLink>
   );
 }
