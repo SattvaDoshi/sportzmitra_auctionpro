@@ -1,13 +1,10 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import api from "../api/api";
-import { io } from "socket.io-client";
+import socket from "../utils/socket";
 import { Radio } from "lucide-react";
 import { getImageUrl } from "../utils/imageUrl";
 
-const socket = io(import.meta.env.VITE_SOCKET_URL || "http://localhost:5000", {
-  transports: ["websocket", "polling"],
-});
 
 function formatAmount(value) {
   return Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
@@ -100,21 +97,26 @@ export default function YoutubeOverlay() {
     };
 
     socket.on("auction_snapshot", handleSnapshotUpdated);
-    socket.on("player_sold", handlePlayerSold);
-    socket.on("player_unsold", handleSnapshotUpdated);
-    socket.on("bid_placed", handleSnapshotUpdated);
-    socket.on("auction_started", handleSnapshotUpdated);
-    socket.on("auction_paused", handleSnapshotUpdated);
-    socket.on("auction_resumed", handleSnapshotUpdated);
+    socket.on("auctionSnapshotUpdated", handleSnapshotUpdated);
+    socket.on("playerSold", handlePlayerSold);
+    socket.on("playerUnsold", handleSnapshotUpdated);
+    socket.on("playerFinalUnsold", handleSnapshotUpdated);
+    socket.on("bidPlaced", handleSnapshotUpdated);
+    socket.on("bidPreviewUpdated", handleSnapshotUpdated);
+    socket.on("auctionPaused", handleSnapshotUpdated);
+    socket.on("auctionResumed", handleSnapshotUpdated);
+    socket.on("playerSelected", handleSnapshotUpdated);
 
     return () => {
-      socket.off("auction_snapshot", handleSnapshotUpdated);
-      socket.off("player_sold", handlePlayerSold);
-      socket.off("player_unsold", handleSnapshotUpdated);
-      socket.off("bid_placed", handleSnapshotUpdated);
-      socket.off("auction_started", handleSnapshotUpdated);
-      socket.off("auction_paused", handleSnapshotUpdated);
-      socket.off("auction_resumed", handleSnapshotUpdated);
+      socket.off("auctionSnapshotUpdated", handleSnapshotUpdated);
+      socket.off("playerSold", handlePlayerSold);
+      socket.off("playerUnsold", handleSnapshotUpdated);
+      socket.off("playerFinalUnsold", handleSnapshotUpdated);
+      socket.off("bidPlaced", handleSnapshotUpdated);
+      socket.off("bidPreviewUpdated", handleSnapshotUpdated);
+      socket.off("auctionPaused", handleSnapshotUpdated);
+      socket.off("auctionResumed", handleSnapshotUpdated);
+      socket.off("playerSelected", handleSnapshotUpdated);
       socket.emit("leavePublicAuction", { auctionId: auction.id, publicSlug });
     };
   }, [auction?.id, publicSlug]);

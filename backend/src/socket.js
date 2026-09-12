@@ -1,4 +1,10 @@
+"use strict";
+
+const MAX_CONNECTIONS = 1200; // hard cap — reject beyond this to protect memory
+
 let ioInstance = null;
+let totalConnections = 0;
+
 const auctionViewers = new Map();
 const socketAuctionRooms = new Map();
 
@@ -50,7 +56,14 @@ function initSocket(io) {
   ioInstance = io;
 
   io.on("connection", (socket) => {
-    console.log("Socket connected:", socket.id);
+    // Connection cap — shed load gracefully
+    if (totalConnections >= MAX_CONNECTIONS) {
+      socket.emit("connect_error", { message: "Server at capacity. Please retry later." });
+      socket.disconnect(true);
+      return;
+    }
+
+    totalConnections++;
 
     socket.on("joinAuction", (auctionId) => {
       joinAuctionRoom(socket, auctionId, false);
@@ -69,9 +82,9 @@ function initSocket(io) {
     });
 
     socket.on("disconnect", () => {
+      totalConnections = Math.max(0, totalConnections - 1);
       const auctionId = socketAuctionRooms.get(socket.id);
       if (auctionId) leaveAuctionRoom(socket, auctionId);
-      console.log("Socket disconnected:", socket.id);
     });
   });
 }

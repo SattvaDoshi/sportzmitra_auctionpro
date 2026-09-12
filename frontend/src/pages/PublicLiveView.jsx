@@ -2,12 +2,9 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import api from "../api/api";
 import { getImageUrl } from "../utils/imageUrl";
-import { io } from "socket.io-client";
+import socket from "../utils/socket";
 import { Clock, User, Users, ChevronRight } from "lucide-react";
 
-const socket = io(import.meta.env.VITE_SOCKET_URL || "http://localhost:5000", {
-  transports: ["websocket", "polling"],
-});
 
 function formatAmount(value) {
   return Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });

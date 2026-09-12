@@ -1,14 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import { io } from "socket.io-client";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Eye, Radio, Search, Trophy, Users, CheckCircle, XCircle, Clock, Wallet } from "lucide-react";
 import api from "../api/api";
 import PlayerAvatar from "../components/ui/PlayerAvatar";
 import TeamLogo from "../components/ui/TeamLogo";
-
-const socket = io(import.meta.env.VITE_SOCKET_URL || "http://localhost:5000", {
-  transports: ["websocket", "polling"],
-});
+import socket from "../utils/socket";
 
 function money(value) {
   return Number(value || 0).toLocaleString("en-IN");
@@ -22,6 +18,10 @@ export default function PublicDashboardView() {
   const [activeTab, setActiveTab] = useState("teams");
   const [category, setCategory] = useState("ALL");
   const [search, setSearch] = useState("");
+  // Track the auctionId so we can join/leave the right room
+  const auctionIdRef = useRef(null);
+  // Debounce timer ref for rapid socket events
+  const debounceRef = useRef(null);
 
   async function loadInitialSnapshot() {
     try {
@@ -31,8 +31,13 @@ export default function PublicDashboardView() {
       setViewerCount(snapshot.viewerCount || 0);
       setError("");
 
-      if (snapshot.auction?.id) {
-        socket.emit("joinPublicAuction", { auctionId: snapshot.auction.id });
+      const aid = snapshot.auction?.id;
+      if (aid && aid !== auctionIdRef.current) {
+        if (auctionIdRef.current) {
+          socket.emit("leavePublicAuction", { auctionId: auctionIdRef.current });
+        }
+        auctionIdRef.current = aid;
+        socket.emit("joinPublicAuction", { auctionId: aid });
       }
     } catch (err) {
       console.error(err);
@@ -43,30 +48,68 @@ export default function PublicDashboardView() {
   useEffect(() => {
     loadInitialSnapshot();
 
-    // On any live event, reload the full snapshot from the server
-    // This ensures we always have complete, consistent data
-    const handleLiveEvent = () => {
+    /**
+     * Merge a socket payload directly into state — NO HTTP refetch.
+     * This is the key scaling fix: 1000 viewers no longer each fire
+     * an HTTP request on every bid event.
+     */
+    function mergePayload(payload) {
+      if (!payload) return;
+      setData((prev) => {
+        if (!prev) return payload;
+        return {
+          ...prev,
+          ...payload,
+          // Preserve rich lists from the latest payload if provided
+          teamsSummary: payload.teamsSummary ?? prev.teamsSummary,
+          teams: payload.teams ?? prev.teams,
+          soldPlayers: payload.soldPlayers ?? prev.soldPlayers,
+          unsoldPlayers: payload.unsoldPlayers ?? prev.unsoldPlayers,
+          pendingPlayers: payload.pendingPlayers ?? prev.pendingPlayers,
+          categorySummary: payload.categorySummary ?? prev.categorySummary,
+          dashboardSummary: payload.dashboardSummary ?? prev.dashboardSummary,
+          auction: payload.auction ?? prev.auction,
+          state: payload.state ?? prev.state,
+        };
+      });
+      if (payload.viewerCount !== undefined) setViewerCount(payload.viewerCount);
+    }
+
+    /**
+     * Debounced handler: if multiple events fire within 200ms (e.g. rapid
+     * bid-preview updates) we coalesce them into one state update.
+     */
+    function handleLiveEvent(payload) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => mergePayload(payload), 200);
+    }
+
+    const handleViewers = ({ viewerCount: vc }) => setViewerCount(vc || 0);
+
+    // On socket reconnect, do one full HTTP reload to get fresh consistent data
+    function handleReconnect() {
       loadInitialSnapshot();
-    };
+    }
 
     const events = [
       "auctionSnapshotUpdated", "playerSelected", "bidPlaced",
       "bidPreviewUpdated", "bidIncrementUpdated", "playerSold",
-      "playerUnsold", "playerFinalUnsold"
+      "playerUnsold", "playerFinalUnsold",
     ];
 
-    const handleViewers = ({ viewerCount }) => {
-      setViewerCount(viewerCount || 0);
-    };
-
-    events.forEach(evt => socket.on(evt, handleLiveEvent));
+    events.forEach((evt) => socket.on(evt, handleLiveEvent));
     socket.on("viewerCountUpdated", handleViewers);
+    socket.on("connect", handleReconnect);
 
     return () => {
-      events.forEach(evt => socket.off(evt, handleLiveEvent));
+      clearTimeout(debounceRef.current);
+      events.forEach((evt) => socket.off(evt, handleLiveEvent));
       socket.off("viewerCountUpdated", handleViewers);
+      socket.off("connect", handleReconnect);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publicSlug]);
+
 
   const categories = useMemo(() => {
     const all = [...(data?.categorySummary || [])].map((c) => c.category).filter(Boolean);

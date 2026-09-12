@@ -6,6 +6,8 @@ const { mapPublicSnapshot } = require("../utils/spResults");
 const { sendError } = require("../utils/errors");
 const { emitAuctionSnapshot } = require("../socket");
 const { calculateMaxBids, getTeamMaxBid } = require("../utils/maxBid");
+const { auctionWriteQueue } = require("../middleware/requestQueue");
+const cache = require("../utils/snapshotCache");
 
 const router = express.Router();
 
@@ -163,6 +165,7 @@ router.post(
   authMiddleware,
   requireRole("AUCTION_ADMIN", "SUPER_ADMIN"),
   checkAuctionAccess("auctionId"),
+  auctionWriteQueue,
   async (req, res) => {
     try {
       const auctionId = Number(req.params.auctionId);
@@ -176,6 +179,7 @@ router.post(
         req.user.userId,
       ]);
 
+      cache.invalidate(auctionId);
       emitAuctionSnapshot(auctionId, snapshot, "playerSelected");
       emitAuctionSnapshot(auctionId, snapshot);
 
@@ -192,6 +196,7 @@ router.post(
   authMiddleware,
   requireRole("AUCTION_ADMIN", "SUPER_ADMIN"),
   checkAuctionAccess("auctionId"),
+  auctionWriteQueue,
   async (req, res) => {
     try {
       const auctionId = Number(req.params.auctionId);
@@ -211,6 +216,7 @@ router.post(
         req.user.userId,
       ]);
 
+      cache.invalidate(auctionId);
       emitAuctionSnapshot(auctionId, snapshot, "bidPlaced");
       emitAuctionSnapshot(auctionId, snapshot);
 
@@ -227,6 +233,7 @@ router.post(
   authMiddleware,
   requireRole("AUCTION_ADMIN", "SUPER_ADMIN"),
   checkAuctionAccess("auctionId"),
+  auctionWriteQueue,
   async (req, res) => {
     try {
       const auctionId = Number(req.params.auctionId);
@@ -235,6 +242,7 @@ router.post(
       const next = await autoSelectNextIfRandom(auctionId, req.user.userId);
       const snapshot = await loadSnapshot(auctionId);
 
+      cache.invalidate(auctionId);
       emitAuctionSnapshot(auctionId, { ...snapshot, next }, "playerSold");
       emitAuctionSnapshot(auctionId, snapshot);
 
@@ -251,6 +259,7 @@ router.post(
   authMiddleware,
   requireRole("AUCTION_ADMIN", "SUPER_ADMIN"),
   checkAuctionAccess("auctionId"),
+  auctionWriteQueue,
   async (req, res) => {
     try {
       const auctionId = Number(req.params.auctionId);
@@ -259,6 +268,7 @@ router.post(
       const next = await autoSelectNextIfRandom(auctionId, req.user.userId);
       const snapshot = await loadSnapshot(auctionId);
 
+      cache.invalidate(auctionId);
       emitAuctionSnapshot(auctionId, { ...snapshot, next }, "playerUnsold");
       emitAuctionSnapshot(auctionId, snapshot);
 
@@ -276,11 +286,13 @@ router.post(
   authMiddleware,
   requireRole("AUCTION_ADMIN", "SUPER_ADMIN"),
   checkAuctionAccess("auctionId"),
+  auctionWriteQueue,
   async (req, res) => {
     try {
       const auctionId = Number(req.params.auctionId);
       const suggested = await suggestNextPlayer(auctionId);
       const snapshot = await loadSnapshot(auctionId);
+      cache.invalidate(auctionId);
       emitAuctionSnapshot(auctionId, snapshot, "nextPlayerSuggested");
       emitAuctionSnapshot(auctionId, snapshot);
       res.json({ message: suggested ? "Next player suggested" : "No eligible player found", suggested, snapshot, state: snapshot.state });
@@ -357,6 +369,7 @@ router.patch(
   authMiddleware,
   requireRole("AUCTION_ADMIN", "SUPER_ADMIN"),
   checkAuctionAccess("auctionId"),
+  auctionWriteQueue,
   async (req, res) => {
     try {
       const auctionId = Number(req.params.auctionId);
@@ -377,6 +390,7 @@ router.patch(
       );
 
       const snapshot = await loadSnapshot(auctionId);
+      cache.invalidate(auctionId);
       emitAuctionSnapshot(auctionId, snapshot, "selectionModeUpdated");
       emitAuctionSnapshot(auctionId, snapshot);
       res.json({ message: "Next player mode updated", selection_mode: mode, snapshot, state: snapshot.state });
@@ -392,6 +406,7 @@ router.patch(
   authMiddleware,
   requireRole("AUCTION_ADMIN", "SUPER_ADMIN"),
   checkAuctionAccess("auctionId"),
+  auctionWriteQueue,
   async (req, res) => {
     const conn = await pool.getConnection();
     try {
@@ -450,6 +465,7 @@ router.patch(
 
       await conn.commit();
       const snapshot = await loadSnapshot(auctionId);
+      cache.invalidate(auctionId);
       emitAuctionSnapshot(auctionId, snapshot, "bidPreviewUpdated");
       emitAuctionSnapshot(auctionId, snapshot);
       res.json({ message: "Bid updated", snapshot, state: snapshot.state });
@@ -468,6 +484,7 @@ router.patch(
   authMiddleware,
   requireRole("AUCTION_ADMIN", "SUPER_ADMIN"),
   checkAuctionAccess("auctionId"),
+  auctionWriteQueue,
   async (req, res) => {
     try {
       const auctionId = Number(req.params.auctionId);
@@ -479,6 +496,7 @@ router.patch(
         [increment, req.user.userId, auctionId]
       );
       const snapshot = await loadSnapshot(auctionId);
+      cache.invalidate(auctionId);
       emitAuctionSnapshot(auctionId, snapshot, "bidIncrementUpdated");
       emitAuctionSnapshot(auctionId, snapshot);
       res.json({ message: "Bid increment updated", snapshot, state: snapshot.state });
@@ -567,6 +585,7 @@ router.post(
   authMiddleware,
   requireRole("AUCTION_ADMIN", "SUPER_ADMIN"),
   checkAuctionAccess("auctionId"),
+  auctionWriteQueue,
   async (req, res) => {
     const conn = await pool.getConnection();
     try {
@@ -589,6 +608,7 @@ router.post(
 
       await conn.commit();
       const snapshot = await loadSnapshot(auctionId);
+      cache.invalidate(auctionId);
       emitAuctionSnapshot(auctionId, snapshot, "auctionPaused");
       emitAuctionSnapshot(auctionId, snapshot);
       res.json({ message: "Auction paused", snapshot, state: snapshot.state });
@@ -607,6 +627,7 @@ router.post(
   authMiddleware,
   requireRole("AUCTION_ADMIN", "SUPER_ADMIN"),
   checkAuctionAccess("auctionId"),
+  auctionWriteQueue,
   async (req, res) => {
     const conn = await pool.getConnection();
     try {
@@ -643,6 +664,7 @@ router.post(
 
       await conn.commit();
       const snapshot = await loadSnapshot(auctionId);
+      cache.invalidate(auctionId);
       emitAuctionSnapshot(auctionId, snapshot, "auctionResumed");
       emitAuctionSnapshot(auctionId, snapshot);
       res.json({ message: "Auction resumed", snapshot, state: snapshot.state });
@@ -694,6 +716,7 @@ router.post(
   authMiddleware,
   requireRole("AUCTION_ADMIN", "SUPER_ADMIN"),
   checkAuctionAccess("auctionId"),
+  auctionWriteQueue,
   async (req, res) => {
     const conn = await pool.getConnection();
     try {
@@ -763,6 +786,7 @@ router.post(
 
       await conn.commit();
       const snapshot = await loadSnapshot(auctionId);
+      cache.invalidate(auctionId);
       emitAuctionSnapshot(auctionId, snapshot, "auctionSnapshotUpdated");
       res.json({ message: "Correction applied successfully", snapshot });
     } catch (error) {
