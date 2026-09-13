@@ -341,7 +341,11 @@ export default function TeamsPage() {
                   onClick={() => {
                     setShowForm(true);
                     setEditingTeam(null);
-                    setForm(emptyTeam);
+                    setForm({
+                      ...emptyTeam,
+                      total_purse: auction?.total_purse_per_team || "",
+                      player_limit: auction?.players_per_team || "",
+                    });
                   }}
                   className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#EC008C] px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-pink-200 transition hover:bg-[#d4007d] active:scale-95"
                 >
@@ -613,25 +617,7 @@ export default function TeamsPage() {
               </div>
             </div>
           )}
-          {/* Quick Recent Teams */}
-          {recentTeams.length > 0 && (
-            <div className="mb-4 flex flex-wrap gap-2">
-              {recentTeams.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  className="rounded-full bg-pink-100 px-3 py-1 text-xs font-medium text-pink-700"
-                  onClick={() => {
-                    setEditingTeam(null);
-                    setForm({ ...emptyTeam, team_name: t.team_name, short_name: t.short_name || "", owner_name: t.owner_name || "", owner_mobile: t.owner_mobile || "", total_purse: t.total_purse, remaining_purse: t.remaining_purse, player_limit: t.player_limit, logo_url: t.logo_url, team_whatsapp_group_link: t.team_whatsapp_group_link });
-                    setShowForm(true);
-                  }}
-                >
-                  {t.team_name}
-                </button>
-              ))}
-            </div>
-          )}
+
       </div>
     </AdminLayout>
   );

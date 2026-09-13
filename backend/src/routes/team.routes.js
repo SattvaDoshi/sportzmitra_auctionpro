@@ -112,13 +112,17 @@ router.get("/auction/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
 router.get("/recent", authMiddleware, requireRole("AUCTION_ADMIN", "SUPER_ADMIN"), async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT t.* 
+      `SELECT t.*
        FROM teams t
-       JOIN auctions a ON t.auction_id = a.id
-       JOIN organization_admins oa ON a.organization_id = oa.organization_id
-       WHERE oa.user_id = ? AND COALESCE(t.is_deleted, 0) = 0
-       GROUP BY t.team_name, t.short_name, t.owner_name, t.logo_url
-       ORDER BY MAX(t.created_at) DESC
+       JOIN (
+           SELECT MAX(t2.id) as max_id
+           FROM teams t2
+           JOIN auctions a ON t2.auction_id = a.id
+           JOIN organization_admins oa ON a.organization_id = oa.organization_id
+           WHERE oa.user_id = ? AND COALESCE(t2.is_deleted, 0) = 0
+           GROUP BY t2.team_name, t2.short_name, t2.owner_name, t2.logo_url
+       ) latest_teams ON t.id = latest_teams.max_id
+       ORDER BY t.created_at DESC
        LIMIT 6`,
       [req.user.userId]
     );
