@@ -1,22 +1,7 @@
-const mysql = require('mysql2/promise');
-const dotenv = require('dotenv');
-
-dotenv.config();
-
-async function updateProcedures() {
-  const pool = mysql.createPool({
-    host: process.env.DB_HOST || 'localhost',
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'sportzmitra_auction',
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0,
-    multipleStatements: true,
-  });
-
-  const spPlaceBid = `DROP PROCEDURE IF EXISTS sp_place_bid;
-CREATE PROCEDURE sp_place_bid(
+module.exports = {
+  up: async (pool) => {
+    const dropSpPlaceBid = `DROP PROCEDURE IF EXISTS sp_place_bid;`;
+    const createSpPlaceBid = `CREATE PROCEDURE sp_place_bid(
   IN p_auction_id BIGINT,
   IN p_player_id BIGINT,
   IN p_team_id BIGINT,
@@ -103,8 +88,8 @@ BEGIN
   CALL sp_get_public_auction_snapshot(p_auction_id);
 END;`;
 
-  const spMarkSold = `DROP PROCEDURE IF EXISTS sp_mark_player_sold;
-CREATE PROCEDURE sp_mark_player_sold(
+    const dropSpMarkSold = `DROP PROCEDURE IF EXISTS sp_mark_player_sold;`;
+    const createSpMarkSold = `CREATE PROCEDURE sp_mark_player_sold(
   IN p_auction_id BIGINT,
   IN p_user_id BIGINT
 )
@@ -203,17 +188,11 @@ BEGIN
   CALL sp_get_public_auction_snapshot(p_auction_id);
 END;`;
 
-  try {
     console.log('Updating sp_place_bid...');
-    await pool.query(spPlaceBid);
+    await pool.query(dropSpPlaceBid);
+    await pool.query(createSpPlaceBid);
     console.log('Updating sp_mark_player_sold...');
-    await pool.query(spMarkSold);
-    console.log('Procedures updated successfully.');
-  } catch (error) {
-    console.error('Error updating procedures:', error);
-  } finally {
-    await pool.end();
+    await pool.query(dropSpMarkSold);
+    await pool.query(createSpMarkSold);
   }
-}
-
-updateProcedures();
+};
