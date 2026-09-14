@@ -75,6 +75,7 @@ CREATE TABLE `auction_categories` (
   `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `base_price` decimal(12,2) DEFAULT '0.00',
   `bid_increment` decimal(12,2) DEFAULT NULL,
+  `max_players_per_team` int DEFAULT '0',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_auction_category` (`auction_id`,`category_name`),
   KEY `idx_auction_categories_auction` (`auction_id`),

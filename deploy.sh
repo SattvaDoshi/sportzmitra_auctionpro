@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 #  SportzMitra AuctionPro — Full-Stack Deploy Script
-#  Target: Hostinger KVM 4 · Ubuntu 22.04 LTS
+#  Target: Hostinger KVM (2 vCPU · 8 GB RAM) · Ubuntu 22.04 LTS
 #
 #  Run as root (or sudo) on a FRESH VPS:
 #      chmod +x deploy.sh
@@ -161,17 +161,17 @@ MYSQL_SECURE
 
 success "MySQL root secured."
 
-# Tune MySQL for 16 GB RAM VPS
+# Tune MySQL for 8 GB RAM VPS
 cat > /etc/mysql/mysql.conf.d/sportzmitra.cnf <<MYCNF
 [mysqld]
-# Memory — use ~6 GB for InnoDB buffer pool (leave rest for OS + Node)
-innodb_buffer_pool_size         = 6G
-innodb_buffer_pool_instances    = 4
-innodb_log_file_size            = 512M
+# Memory — use ~3 GB for InnoDB buffer pool (leave rest for OS + Node)
+innodb_buffer_pool_size         = 3G
+innodb_buffer_pool_instances    = 2
+innodb_log_file_size            = 256M
 innodb_flush_log_at_trx_commit  = 2
 innodb_flush_method             = O_DIRECT
 
-# Connections — 4 PM2 workers × 10 conns = 40 app + headroom
+# Connections — 2 PM2 workers × 10 conns = 20 app + headroom
 max_connections                 = 200
 wait_timeout                    = 60
 interactive_timeout             = 60
@@ -279,9 +279,9 @@ success "Backend npm install complete."
 # Stop existing PM2 app if running
 pm2 delete sportzmitra-auction 2>/dev/null || true
 
-# Start with PM2 (production mode, 4 workers via ecosystem.config.js)
+# Start with PM2 (production mode, 2 workers via ecosystem.config.js)
 pm2 start "$BACKEND_DIR/ecosystem.config.js" --env production
-success "Backend started with PM2 (4 workers)."
+success "Backend started with PM2 (2 workers)."
 
 # =============================================================================
 # STEP 6 — Frontend (Vite build)
@@ -611,7 +611,7 @@ else
 fi
 
 PM2_STATUS=$(pm2 jlist 2>/dev/null | python3 -c "import sys,json; apps=json.load(sys.stdin); print(sum(1 for a in apps if a['name']=='sportzmitra-auction' and a['pm2_env']['status']=='online'))" 2>/dev/null || echo "?")
-info "PM2 workers online: $PM2_STATUS / 4"
+info "PM2 workers online: $PM2_STATUS / 2"
 
 # =============================================================================
 # DONE
@@ -627,7 +627,7 @@ echo "  │   URL:      https://${DOMAIN}"
 else
 echo "  │   URL:      http://${DOMAIN}  (HTTP only)"
 fi
-echo "  │   Backend:  127.0.0.1:${BACKEND_PORT}  (PM2, 4 workers)       │"
+echo "  │   Backend:  127.0.0.1:${BACKEND_PORT}  (PM2, 2 workers)       │"
 echo "  │   DB:       ${DB_NAME} @ localhost                  │"
 echo "  ├─────────────────────────────────────────────────────────┤"
 echo "  │   Useful commands:                                      │"

@@ -23,7 +23,7 @@ module.exports = {
       script: "src/server.js",
 
       // Fork one worker per vCPU core
-      instances: 4,
+      instances: 2,
       exec_mode: "cluster",
 
       // ── Environment ──────────────────────────────────────────────────────
