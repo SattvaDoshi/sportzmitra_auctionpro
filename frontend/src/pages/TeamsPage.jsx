@@ -528,17 +528,17 @@ export default function TeamsPage() {
 
                     {/* Logo + Name + Owner */}
                     <div className="flex items-center gap-3.5">
-                      <div className="h-12 w-12 shrink-0 overflow-hidden rounded-full border border-slate-100 bg-slate-50 p-0.5 shadow-sm">
-                        {team.logo_url ? (
-                          <TeamLogo team={team} size="lg" />
-                        ) : (
+                      {team.logo_url ? (
+                        <TeamLogo team={team} className="h-12 w-12 shrink-0 rounded-full !p-0.5 object-cover" />
+                      ) : (
+                        <div className="h-12 w-12 shrink-0 overflow-hidden rounded-full border border-slate-100 bg-slate-50 p-0.5 shadow-sm">
                           <img
                             src={defaultLogo}
                             alt={team.team_name}
                             className="h-full w-full rounded-full object-cover"
                           />
-                        )}
-                      </div>
+                        </div>
+                      )}
 
                       <div className="min-w-0">
                         <h3 className="truncate text-base font-bold text-slate-900">
@@ -697,6 +697,7 @@ function TeamForm({ form, setForm, onSubmit, onClose, onDelete, editing }) {
             value={form.total_purse || ""}
             onChange={(val) => set("total_purse", val)}
             required
+            readOnly
           />
 
         {editing && (
@@ -705,6 +706,7 @@ function TeamForm({ form, setForm, onSubmit, onClose, onDelete, editing }) {
               type="number"
               value={form.remaining_purse || ""}
               onChange={(val) => set("remaining_purse", val)}
+              readOnly
             />
           )}
 
@@ -713,6 +715,7 @@ function TeamForm({ form, setForm, onSubmit, onClose, onDelete, editing }) {
             type="number"
             value={form.player_limit || ""}
             onChange={(val) => set("player_limit", val)}
+            readOnly
           />
 
         <FormInput
@@ -757,7 +760,7 @@ function TeamForm({ form, setForm, onSubmit, onClose, onDelete, editing }) {
   );
 }
 
-function FormInput({ label, value, onChange, type = "text", required }) {
+function FormInput({ label, value, onChange, type = "text", required, readOnly }) {
   return (
     <label className="block">
       <span className="mb-1.5 block text-xs font-bold text-slate-700">
@@ -768,7 +771,13 @@ function FormInput({ label, value, onChange, type = "text", required }) {
         type={type}
         value={value || ""}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 py-2.5 text-xs font-medium text-slate-800 outline-none transition focus:border-[#EC008C] focus:bg-white focus:ring-2 focus:ring-pink-100"
+        readOnly={readOnly}
+        disabled={readOnly}
+        className={`w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs font-medium outline-none transition focus:border-[#EC008C] focus:ring-2 focus:ring-pink-100 ${
+          readOnly 
+            ? "bg-slate-100 text-slate-500 cursor-not-allowed opacity-80" 
+            : "bg-slate-50/50 text-slate-800 focus:bg-white"
+        }`}
       />
     </label>
   );
