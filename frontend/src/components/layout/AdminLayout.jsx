@@ -64,6 +64,7 @@ function useNavItems({ auctionId, organizationId, publicSlug }) {
         to: auctionId ? `${auctionBase}/live-control` : "#",
         scope: "auction",
         isLive: true,
+        external: true,
       },
       { label: "Reports", icon: BarChart3, to: auctionId ? `${auctionBase}/reports` : "#", scope: "auction" },
       { label: "Public View", icon: Eye, to: publicSlug ? `/live/${publicSlug}` : "#", scope: "auction" },
@@ -74,9 +75,6 @@ function useNavItems({ auctionId, organizationId, publicSlug }) {
 
 /* =========================================================
    BRAND MARK
-   Drop your file at /public/logo.png — if it's missing or
-   fails to load, this falls back to a monogram badge instead
-   of a broken image icon.
 ========================================================= */
 function BrandMark() {
   const [broken, setBroken] = useState(false);
@@ -145,7 +143,6 @@ export default function AdminLayout({
           DESKTOP SIDEBAR
       ========================================================== */}
       <aside className="fixed inset-y-0 left-0 z-50 hidden w-[264px] flex-col bg-[#03251b] lg:flex">
-        {/* faint scoreboard grid texture */}
         <div className="pointer-events-none absolute inset-0 opacity-[0.04] [background-image:linear-gradient(rgba(255,255,255,.9)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.9)_1px,transparent_1px)] [background-size:28px_28px]" />
         <div className="pointer-events-none absolute -left-16 top-0 h-56 w-56 rounded-full bg-[#ec008c]/10 blur-3xl" />
 
@@ -165,11 +162,6 @@ export default function AdminLayout({
               onOverlayOpen={openLiveOverlay}
               className="mt-6"
             />
-
-            {/* <div className="mt-6 space-y-0.5 border-t border-white/[0.07] pt-4">
-              <UtilityLink icon={CircleHelp} label="Help Center" />
-              <UtilityLink icon={Settings} label="Settings" />
-            </div> */}
           </div>
 
           {/* Live status strip */}
@@ -330,6 +322,24 @@ export default function AdminLayout({
           {navItems.slice(0, 5).map((item) => {
             const Icon = item.icon;
             const isSelected = active === item.label;
+
+            if (item.external) {
+              return (
+                <a
+                  key={item.label}
+                  href={item.to}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`flex flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 transition ${
+                    isSelected ? "text-[#ec008c]" : "text-slate-400"
+                  }`}
+                >
+                  <Icon size={18} strokeWidth={isSelected ? 2.5 : 2} />
+                  <span className="text-[9px] font-semibold">{item.label}</span>
+                </a>
+              );
+            }
+
             return (
               <NavLink
                 key={item.label}
@@ -348,9 +358,6 @@ export default function AdminLayout({
 
       {/* =========================================================
           LIVE AUCTION / YOUTUBE OVERLAY
-          LiveAuctionTicker doesn't manage its own modal chrome — it's a
-          normal inline block — so AdminLayout supplies the backdrop,
-          centering, and close button here.
       ========================================================== */}
       {liveOverlayOpen && (
         <div
@@ -433,7 +440,6 @@ function NavItem({ item, active, onNavigate, onOverlayOpen }) {
     </>
   );
 
-  // Opens the LiveAuctionTicker modal instead of navigating to a route.
   if (item.isOverlay) {
     return (
       <button type="button" onClick={onOverlayOpen} className={sharedClassName}>
@@ -444,7 +450,13 @@ function NavItem({ item, active, onNavigate, onOverlayOpen }) {
 
   if (item.external) {
     return (
-      <a href={item.to} target="_blank" rel="noopener noreferrer" className={sharedClassName}>
+      <a
+        href={item.to}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={onNavigate}
+        className={sharedClassName}
+      >
         {innerContent}
       </a>
     );
@@ -454,17 +466,5 @@ function NavItem({ item, active, onNavigate, onOverlayOpen }) {
     <NavLink to={item.to} onClick={onNavigate} className={sharedClassName}>
       {innerContent}
     </NavLink>
-  );
-}
-
-function UtilityLink({ icon: Icon, label }) {
-  return (
-    <button
-      type="button"
-      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13px] font-semibold text-emerald-100/45 transition hover:bg-white/[0.06] hover:text-white"
-    >
-      <Icon size={17} />
-      {label}
-    </button>
   );
 }

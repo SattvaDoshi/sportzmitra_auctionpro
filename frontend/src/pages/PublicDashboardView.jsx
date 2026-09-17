@@ -1,6 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Eye, Radio, Search, Trophy, Users, CheckCircle, XCircle, Clock, Wallet } from "lucide-react";
+import {
+  ArrowLeft,
+  Eye,
+  Search,
+  Trophy,
+  Users,
+  CheckCircle,
+  XCircle,
+  Clock,
+  Wallet,
+  ChevronLeft,
+  ChevronRight,
+  Shield,
+  Coins,
+  Gavel,
+  PieChart,
+  UserCheck,
+  UserMinus,
+} from "lucide-react";
 import api from "../api/api";
 import PlayerAvatar from "../components/ui/PlayerAvatar";
 import TeamLogo from "../components/ui/TeamLogo";
@@ -10,6 +28,25 @@ function money(value) {
   return Number(value || 0).toLocaleString("en-IN");
 }
 
+// Alternating brand accents used across team cards (pink / lime), matching
+// the two-tone identity used throughout the rest of the dashboard.
+const ACCENTS = [
+  {
+    ring: "border-[#EC008C]/25",
+    text: "text-[#EC008C]",
+    bar: "bg-[#EC008C]",
+    barTrack: "bg-[#EC008C]/15",
+    badge: "bg-[#EC008C]",
+  },
+  {
+    ring: "border-[#8DC63F]/30",
+    text: "text-[#629221]",
+    bar: "bg-[#8DC63F]",
+    barTrack: "bg-[#8DC63F]/15",
+    badge: "bg-[#8DC63F]",
+  },
+];
+
 export default function PublicDashboardView() {
   const { publicSlug } = useParams();
   const [data, setData] = useState(null);
@@ -18,9 +55,12 @@ export default function PublicDashboardView() {
   const [activeTab, setActiveTab] = useState("teams");
   const [category, setCategory] = useState("ALL");
   const [search, setSearch] = useState("");
-  // Track the auctionId so we can join/leave the right room
+
+  // Pagination state for Teams tab
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 8;
+
   const auctionIdRef = useRef(null);
-  // Debounce timer ref for rapid socket events
   const debounceRef = useRef(null);
 
   async function loadInitialSnapshot() {
@@ -48,11 +88,6 @@ export default function PublicDashboardView() {
   useEffect(() => {
     loadInitialSnapshot();
 
-    /**
-     * Merge a socket payload directly into state — NO HTTP refetch.
-     * This is the key scaling fix: 1000 viewers no longer each fire
-     * an HTTP request on every bid event.
-     */
     function mergePayload(payload) {
       if (!payload) return;
       setData((prev) => {
@@ -60,7 +95,6 @@ export default function PublicDashboardView() {
         return {
           ...prev,
           ...payload,
-          // Preserve rich lists from the latest payload if provided
           teamsSummary: payload.teamsSummary ?? prev.teamsSummary,
           teams: payload.teams ?? prev.teams,
           soldPlayers: payload.soldPlayers ?? prev.soldPlayers,
@@ -75,10 +109,6 @@ export default function PublicDashboardView() {
       if (payload.viewerCount !== undefined) setViewerCount(payload.viewerCount);
     }
 
-    /**
-     * Debounced handler: if multiple events fire within 200ms (e.g. rapid
-     * bid-preview updates) we coalesce them into one state update.
-     */
     function handleLiveEvent(payload) {
       clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => mergePayload(payload), 200);
@@ -86,15 +116,19 @@ export default function PublicDashboardView() {
 
     const handleViewers = ({ viewerCount: vc }) => setViewerCount(vc || 0);
 
-    // On socket reconnect, do one full HTTP reload to get fresh consistent data
     function handleReconnect() {
       loadInitialSnapshot();
     }
 
     const events = [
-      "auctionSnapshotUpdated", "playerSelected", "bidPlaced",
-      "bidPreviewUpdated", "bidIncrementUpdated", "playerSold",
-      "playerUnsold", "playerFinalUnsold",
+      "auctionSnapshotUpdated",
+      "playerSelected",
+      "bidPlaced",
+      "bidPreviewUpdated",
+      "bidIncrementUpdated",
+      "playerSold",
+      "playerUnsold",
+      "playerFinalUnsold",
     ];
 
     events.forEach((evt) => socket.on(evt, handleLiveEvent));
@@ -107,9 +141,7 @@ export default function PublicDashboardView() {
       socket.off("viewerCountUpdated", handleViewers);
       socket.off("connect", handleReconnect);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publicSlug]);
-
 
   const categories = useMemo(() => {
     const all = [...(data?.categorySummary || [])].map((c) => c.category).filter(Boolean);
@@ -120,15 +152,44 @@ export default function PublicDashboardView() {
     const q = search.trim().toLowerCase();
     return rows.filter((row) => {
       const catOk = category === "ALL" || row.category === category;
-      const qOk = !q || `${row.player_name || ""} ${row.player_role || ""} ${row.sold_team_name || ""} ${row.team_name || ""}`.toLowerCase().includes(q);
+      const qOk =
+        !q ||
+        `${row.player_name || ""} ${row.player_role || ""} ${
+          row.sold_team_name || ""
+        } ${row.team_name || ""}`
+          .toLowerCase()
+          .includes(q);
       return catOk && qOk;
     });
   }
 
+  const filteredTeams = useMemo(() => {
+    const rawTeams = data?.teamsSummary || data?.teams || [];
+    const q = search.trim().toLowerCase();
+    if (!q) return rawTeams;
+    return rawTeams.filter((t) =>
+      (t.team_name || t.name || "").toLowerCase().includes(q)
+    );
+  }, [data, search]);
+
+  const totalPages = Math.ceil(filteredTeams.length / itemsPerPage) || 1;
+  const paginatedTeams = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredTeams.slice(start, start + itemsPerPage);
+  }, [filteredTeams, currentPage]);
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) setCurrentPage((prev) => prev - 1);
+  };
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) setCurrentPage((prev) => prev + 1);
+  };
+
   if (error) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6 text-center font-sans">
-        <div className="rounded-2xl border border-red-200 bg-white p-8 text-red-600 shadow-lg max-w-md">
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 p-6 text-center font-sans">
+        <div className="rounded-2xl border border-rose-200 bg-white p-8 text-rose-600 shadow-lg max-w-md">
           <p className="font-bold">{error}</p>
         </div>
       </div>
@@ -137,9 +198,9 @@ export default function PublicDashboardView() {
 
   if (!data) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-600 font-sans">
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-600 font-sans">
         <div className="flex items-center gap-3">
-          <div className="h-6 w-6 animate-spin rounded-full border-3 border-[#8CC63F] border-t-transparent" />
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#8DC63F] border-t-transparent" />
           <span className="font-bold tracking-wider uppercase text-xs">Loading Dashboard...</span>
         </div>
       </div>
@@ -149,133 +210,356 @@ export default function PublicDashboardView() {
   const { auction, dashboardSummary = {} } = data;
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 selection:bg-[#8CC63F] selection:text-white">
-      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        
+    <div
+      className="min-h-screen bg-slate-100/70 font-sans text-slate-800 selection:bg-[#EC008C] selection:text-white bg-cover bg-center bg-fixed p-3 sm:p-5 lg:p-6"
+      style={{ backgroundImage: "url('/publicDashboard.png')" }}
+    >
+      <div className="mx-auto max-w-7xl">
         {/* Header Section */}
-        <header className="relative mb-6 overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+        <header className="mb-5 sm:mb-6 flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="hidden xs:flex h-11 w-11 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-2xl bg-white/70 shadow-sm">
+              <Gavel size={22} className="text-[#EC008C]" />
+            </div>
             <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-[#8CC63F]/30 bg-[#8CC63F]/10 px-3 py-1 text-xs font-black uppercase tracking-widest text-[#629221]">
-                <Radio className="h-3.5 w-3.5 animate-pulse text-[#E5007D]" /> Live Public Dashboard
-              </div>
-              <h1 className="mt-2 text-2xl font-black uppercase tracking-tight text-slate-900 sm:text-4xl">
-                {auction?.auction_name}
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-black italic uppercase leading-tight tracking-tight text-slate-900">
+                BPL <span className="text-[#EC008C]">SEASON 9</span> AUCTION
               </h1>
-              <p className="mt-1 text-xs font-semibold tracking-wider text-slate-500 sm:text-sm">
-                Real-time Team Rosters • Player Bids • Category Analytics
+              <p className="mt-0.5 text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-400">
+                REAL-TIME TEAM ROSTERS &bull; PLAYER BIDS &bull; CATEGORY &bull; ANALYTICS
               </p>
             </div>
+          </div>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <Badge icon={<Eye className="h-4 w-4 text-[#8CC63F]" />} label={`${viewerCount} Live Viewers`} />
-              <Link
-                to={`/live/${publicSlug}`}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#8CC63F] hover:bg-[#7ab332] px-4 py-2.5 text-xs font-black uppercase tracking-wider text-white shadow-sm transition-all active:scale-95"
-              >
-                <ArrowLeft className="h-4 w-4" /> Live Arena
-              </Link>
-            </div>
+          <p
+            className="hidden md:block -rotate-2 select-none font-serif text-base italic leading-tight text-[#EC008C]/90"
+            style={{ fontFamily: "'Brush Script MT', cursive" }}
+          >
+            Players
+            <br />
+            Passion
+            <br />
+            Bigger Dreams
+          </p>
+
+          <div className="flex w-full items-center gap-3 sm:w-auto">
+            <span className="flex items-center gap-2 rounded-full bg-white px-3 sm:px-3.5 py-1.5 text-[11px] sm:text-xs font-bold text-slate-700 shadow-sm border border-slate-200">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <Eye size={14} className="text-emerald-500" />
+              <span>{viewerCount} LIVE VIEWERS</span>
+            </span>
+
+            <Link
+              to={`/live/${publicSlug}`}
+              className="flex items-center gap-2 rounded-xl bg-[#8DC63F] hover:bg-[#7ab332] px-3.5 sm:px-4 py-2 text-[11px] sm:text-xs font-black italic uppercase text-white shadow-sm transition active:scale-95"
+            >
+              <ArrowLeft size={16} /> LIVE ARENA
+            </Link>
           </div>
         </header>
 
         {/* Analytics Summary */}
-        <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          <Stat label="Players Sold" value={dashboardSummary.sold_players || 0} icon={<CheckCircle className="h-4 w-4 text-[#8CC63F]" />} />
-          <Stat label="Pending" value={dashboardSummary.pending_players || 0} icon={<Clock className="h-4 w-4 text-amber-500" />} />
-          <Stat label="Unsold Queue" value={dashboardSummary.unsold_players || 0} icon={<XCircle className="h-4 w-4 text-[#E5007D]" />} />
-          <Stat label="Total Balance" value={`₹${money(dashboardSummary.total_balance)}`} highlight icon={<Wallet className="h-4 w-4 text-[#8CC63F]" />} />
-          <Stat label="Highest Bid" value={`₹${money(dashboardSummary.highest_bid)}`} icon={<Trophy className="h-4 w-4 text-amber-500" />} />
+        <section className="mb-5 sm:mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <StatCard
+            label="PLAYERS SOLD"
+            value={dashboardSummary.sold_players || 0}
+            icon={<CheckCircle className="h-5 w-5 text-emerald-500" />}
+            badgeBg="bg-emerald-50"
+            borderColor="border-emerald-200"
+          />
+          <StatCard
+            label="PENDING"
+            value={dashboardSummary.pending_players || 0}
+            icon={<Clock className="h-5 w-5 text-amber-500" />}
+            badgeBg="bg-amber-50"
+            borderColor="border-amber-200"
+          />
+          <StatCard
+            label="UNSOLD QUEUE"
+            value={dashboardSummary.unsold_players || 0}
+            icon={<XCircle className="h-5 w-5 text-rose-500" />}
+            badgeBg="bg-rose-50"
+            borderColor="border-rose-200"
+          />
+          <StatCard
+            label="TOTAL BALANCE"
+            value={`\u20B9${money(dashboardSummary.total_balance)}`}
+            valueColor="text-emerald-600"
+            icon={<Wallet className="h-5 w-5 text-emerald-500" />}
+            badgeBg="bg-emerald-50"
+            borderColor="border-emerald-200"
+          />
+          <StatCard
+            label="HIGHEST BID"
+            value={`\u20B9${money(dashboardSummary.highest_bid)}`}
+            icon={<Trophy className="h-5 w-5 text-orange-500" />}
+            badgeBg="bg-orange-50"
+            borderColor="border-orange-200"
+            className="col-span-2 sm:col-span-1"
+          />
         </section>
 
-        {/* Main Content Area */}
-        <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-          
-          {/* Navigation Tabs */}
-          <div className="no-scrollbar mb-6 flex gap-2 overflow-x-auto border-b border-slate-200 pb-3">
-            {[
-              ["teams", "Teams Overview"],
-              ["sold", "Sold Players"],
-              ["unsold", "Unsold Players"],
-              ["pending", "Pending Pool"],
-              ["category", "Category Stats"],
-            ].map(([tab, label]) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`whitespace-nowrap rounded-xl px-4 py-2.5 text-xs font-black uppercase tracking-wider transition-all ${
-                  activeTab === tab
-                    ? "bg-[#8CC63F] text-white shadow-sm"
-                    : "border border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:text-slate-900"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+        {/* Main Dashboard Container */}
+        <section className="rounded-2xl border border-slate-200/80 bg-white p-3 sm:p-4 shadow-sm">
+          {/* Navigation Bar & Controls */}
+          <div className="mb-5 sm:mb-6 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+            {/* View Tabs */}
+            <div className="no-scrollbar -mx-1 flex items-center gap-1.5 overflow-x-auto px-1 w-full lg:w-auto">
+              {[
+                ["teams", "TEAMS OVERVIEW", Shield],
+                ["sold", "SOLD PLAYERS", UserCheck],
+                ["unsold", "UNSOLD PLAYERS", UserMinus],
+                ["pending", "PENDING POOL", Clock],
+                ["category", "CATEGORY STATS", PieChart],
+              ].map(([tab, label, Icon]) => (
+                <button
+                  key={tab}
+                  onClick={() => {
+                    setActiveTab(tab);
+                    setCurrentPage(1);
+                  }}
+                  className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-3.5 sm:px-4 py-2.5 text-[11px] sm:text-xs font-black uppercase tracking-wider transition ${
+                    activeTab === tab
+                      ? "bg-[#EC008C] text-white shadow-md shadow-[#EC008C]/20"
+                      : "text-slate-500 hover:bg-slate-100"
+                  }`}
+                >
+                  <Icon size={16} />
+                  {label}
+                </button>
+              ))}
+            </div>
 
-          {/* Filter Toolbar (Clean Light Form Fields) */}
-          {activeTab !== "teams" && activeTab !== "category" && (
-            <div className="mb-6 grid gap-3 sm:grid-cols-[220px_1fr]">
-              <div>
+            {/* Controls (Category Selector, Search & Pagination Buttons) */}
+            <div className="flex items-center gap-3 w-full lg:w-auto justify-between lg:justify-end">
+              {activeTab !== "teams" && activeTab !== "category" && (
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-xs font-bold text-slate-900 outline-none transition-all focus:border-[#8CC63F] focus:bg-white focus:ring-1 focus:ring-[#8CC63F]"
+                  className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-[#EC008C]"
                 >
                   {categories.map((c) => (
-                    <option key={c} value={c}>{c === "ALL" ? "All Categories" : c}</option>
+                    <option key={c} value={c}>
+                      {c === "ALL" ? "All Categories" : c}
+                    </option>
                   ))}
                 </select>
-              </div>
+              )}
 
-              <div className="relative">
-                <Search className="absolute left-3.5 top-3 text-slate-400" size={16} />
+              {/* Search Field */}
+              <div className="relative flex-1 sm:flex-none sm:w-60">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 bg-slate-50 py-2.5 pl-10 pr-4 text-xs font-bold text-slate-900 placeholder-slate-400 outline-none transition-all focus:border-[#8CC63F] focus:bg-white focus:ring-1 focus:ring-[#8CC63F]"
-                  placeholder="Search player name, role or team..."
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  placeholder="Search team..."
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-xs font-semibold text-slate-700 placeholder-slate-400 outline-none focus:border-[#EC008C] focus:bg-white"
                 />
               </div>
-            </div>
-          )}
 
-          {/* Tab Views */}
-          {activeTab === "teams" && <TeamsTable rows={data.teamsSummary || data.teams || []} auction={data.auction} soldPlayers={data.soldPlayers || []} />}
+              {/* Pagination controls for Teams tab */}
+              {activeTab === "teams" && (
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={handlePrevPage}
+                    disabled={currentPage === 1}
+                    className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <button
+                    onClick={handleNextPage}
+                    disabled={currentPage === totalPages}
+                    className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Active Tab View */}
+          {activeTab === "teams" && (
+            <TeamsGrid
+              rows={paginatedTeams}
+              auction={data.auction}
+              soldPlayers={data.soldPlayers || []}
+            />
+          )}
           {activeTab === "sold" && <PlayerTable rows={filterRows(data.soldPlayers)} type="sold" />}
           {activeTab === "unsold" && <PlayerTable rows={filterRows(data.unsoldPlayers)} type="unsold" />}
           {activeTab === "pending" && <PlayerTable rows={filterRows(data.pendingPlayers)} type="pending" />}
           {activeTab === "category" && <CategorySummary rows={data.categorySummary || []} />}
         </section>
+
+        {/* Footer */}
+        <footer className="mt-5 sm:mt-6 flex flex-col sm:flex-row items-center justify-between gap-2 border-t border-white/40 pt-4 text-[11px] sm:text-xs font-black uppercase tracking-wider text-slate-700">
+          <p>
+            BPL SEASON 9 <span className="mx-1.5 text-slate-400">|</span> Players
+            <span className="mx-1.5 text-slate-400">&bull;</span> Passion
+            <span className="mx-1.5 text-slate-400">&bull;</span> Bigger Dreams
+          </p>
+          <p className="flex items-center gap-2">
+            <span
+              className="h-3.5 w-3.5 rounded-full shrink-0"
+              style={{
+                background: "radial-gradient(circle at 35% 30%, #e2745a, #7c1d10)",
+              }}
+            />
+            More Than A Game
+          </p>
+        </footer>
       </div>
     </div>
   );
 }
 
-function Badge({ icon, label }) {
+function StatCard({ label, value, valueColor = "text-slate-900", icon, badgeBg, borderColor = "border-slate-200/80", className = "" }) {
   return (
-    <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-black uppercase tracking-wider text-slate-700">
-      {icon} {label}
+    <div className={`flex items-center justify-between rounded-2xl bg-white p-3 sm:p-4 shadow-sm border ${borderColor} ${className}`}>
+      <div className="min-w-0">
+        <span className="block text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1 truncate">
+          {label}
+        </span>
+        <span className={`text-lg sm:text-2xl font-black ${valueColor}`}>{value}</span>
+      </div>
+      <div className={`shrink-0 rounded-full p-2 sm:p-2.5 ${badgeBg}`}>{icon}</div>
     </div>
   );
 }
 
-function Stat({ label, value, highlight, icon }) {
+/* Responsive grid view for Teams: 1 col mobile, 2 cols tablet, 3 on laptop, 4 on large desktop */
+function TeamsGrid({ rows = [], auction, soldPlayers = [] }) {
+  if (!rows.length) return <Empty text="No teams found matching search criteria" />;
+
+  const squadLimit = auction?.players_per_team || auction?.max_players_per_team || 12;
+
   return (
-    <div className={`relative overflow-hidden rounded-2xl border p-4 transition-all ${
-      highlight 
-        ? "border-[#8CC63F]/40 bg-[#8CC63F]/10" 
-        : "border-slate-200 bg-white"
-    }`}>
-      <div className="flex items-center justify-between">
-        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">{label}</span>
-        {icon}
-      </div>
-      <div className={`mt-2 text-xl font-black tracking-tight sm:text-2xl ${highlight ? "text-[#629221]" : "text-slate-900"}`}>
-        {value}
-      </div>
+    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      {rows.map((t, idx) => {
+        const purchased = soldPlayers.filter((p) => p.sold_team_id === t.id).length;
+        const squadSize = t.squad_size ?? purchased;
+        const slotsLeft = Math.max(0, squadLimit - squadSize);
+        const totalPurse = t.total_purse || t.purse || 10000;
+        const spent = t.used_amount ?? t.spent ?? 0;
+        const balance = t.remaining_purse ?? (totalPurse - spent);
+        const maxBid = t.max_bid_allowed ?? t.max_bid ?? balance;
+        const ownerName = t.owner_name || t.owner || t.captain_name || t.captain || "";
+        const usedPct = totalPurse > 0 ? Math.min(100, Math.round((spent / totalPurse) * 100)) : 0;
+        const accent = ACCENTS[idx % ACCENTS.length];
+
+        return (
+          <div
+            key={t.id}
+            className={`group relative overflow-hidden rounded-2xl border ${accent.ring} bg-white p-4 shadow-sm transition hover:shadow-md`}
+          >
+            {/* Watermark icon */}
+            <Shield
+              size={110}
+              strokeWidth={1}
+              className={`pointer-events-none absolute -right-4 -top-2 opacity-[0.06] ${accent.text}`}
+            />
+
+            {/* Header: Logo, Name & Owner */}
+            <div className="relative flex items-center gap-3 border-b border-slate-100 pb-3">
+              <div
+                className={`flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 ${accent.ring} bg-slate-900 text-white font-black shadow-md`}
+              >
+                {t.logo_url ? (
+                  <TeamLogo team={t} size="sm" />
+                ) : (
+                  <Shield size={22} className={accent.text} />
+                )}
+              </div>
+              <div className="min-w-0">
+                <h3 className="truncate text-base font-black italic uppercase tracking-tight text-slate-900">
+                  {t.team_name || t.name}
+                </h3>
+                {ownerName && (
+                  <p className="truncate text-xs font-semibold text-slate-400">{ownerName}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Financial Metrics Row */}
+            <div className="relative mt-3 grid grid-cols-3 gap-1.5 rounded-xl bg-slate-50 p-2 text-center border border-slate-100">
+              <div>
+                <span className="flex items-center justify-center gap-1 text-[9px] font-black uppercase text-slate-400">
+                  <Coins size={10} className="text-pink-500" /> PURSE
+                </span>
+                <span className="text-xs font-black text-slate-900">
+                  &#8377;{money(totalPurse)}
+                </span>
+              </div>
+
+              <div>
+                <span className="flex items-center justify-center gap-1 text-[9px] font-black uppercase text-slate-400">
+                  <Coins size={10} className="text-orange-500" /> SPENT
+                </span>
+                <span className="text-xs font-black text-slate-900">
+                  &#8377;{money(spent)}
+                </span>
+              </div>
+
+              <div>
+                <span className="flex items-center justify-center gap-1 text-[9px] font-black uppercase text-slate-400">
+                  <Wallet size={10} className="text-emerald-500" /> BALANCE
+                </span>
+                <span className="text-xs font-black text-emerald-600">
+                  &#8377;{money(balance)}
+                </span>
+              </div>
+            </div>
+
+            {/* Squad Metrics Row */}
+            <div className="relative mt-2 grid grid-cols-3 gap-1.5 rounded-xl bg-slate-50 p-2 text-center border border-slate-100">
+              <div>
+                <span className="flex items-center justify-center gap-1 text-[9px] font-black uppercase text-slate-400">
+                  <Gavel size={10} className="text-rose-500" /> MAX BID
+                </span>
+                <span className="text-xs font-black text-slate-900">
+                  &#8377;{money(maxBid)}
+                </span>
+              </div>
+
+              <div>
+                <span className="flex items-center justify-center gap-1 text-[9px] font-black uppercase text-slate-400">
+                  <Users size={10} className="text-purple-500" /> SQUAD
+                </span>
+                <span className="text-xs font-black text-slate-900">{squadSize}</span>
+              </div>
+
+              <div>
+                <span className="flex items-center justify-center gap-1 text-[9px] font-black uppercase text-slate-400">
+                  <Users size={10} className="text-blue-500" /> SLOTS LEFT
+                </span>
+                <span className="text-xs font-black text-blue-600">{slotsLeft}</span>
+              </div>
+            </div>
+
+            {/* Budget Utilization */}
+            <div className="relative mt-3">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                  Budget Utilization
+                </span>
+                <span className={`text-[10px] font-black ${accent.text}`}>{usedPct}% USED</span>
+              </div>
+              <div className={`h-1.5 w-full overflow-hidden rounded-full ${accent.barTrack}`}>
+                <div
+                  className={`h-full rounded-full ${accent.bar} transition-all`}
+                  style={{ width: `${usedPct}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -307,10 +591,10 @@ function PlayerTable({ rows = [], type }) {
               <td className="p-3.5 text-slate-500">{p.category || "-"}</td>
               <td className="p-3.5 text-slate-500">{p.player_role || "-"}</td>
               <td className="p-3.5 font-bold text-slate-800">
-                {type === "sold" ? (p.sold_team_name || "-") : `₹${money(p.base_price)}`}
+                {type === "sold" ? p.sold_team_name || "-" : `\u20B9${money(p.base_price)}`}
               </td>
               <td className="p-3.5 font-black text-[#629221]">
-                {type === "sold" ? `₹${money(p.sold_price)}` : (p.unsold_count || 0)}
+                {type === "sold" ? `\u20B9${money(p.sold_price)}` : p.unsold_count || 0}
               </td>
             </tr>
           ))}
@@ -320,50 +604,11 @@ function PlayerTable({ rows = [], type }) {
   );
 }
 
-function TeamsTable({ rows = [], auction, soldPlayers = [] }) {
-  if (!rows.length) return <Empty text="No teams available" />;
-
-  const squadLimit = auction?.players_per_team || auction?.max_players_per_team || 0;
-
-  return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {rows.map((t) => {
-        const purchased = soldPlayers.filter(p => p.sold_team_id === t.id).length;
-        const slotsLeft = Math.max(0, squadLimit - purchased);
-        const maxBid = t.max_bid_allowed ?? t.remaining_purse;
-
-        return (
-          <div key={t.id} className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 transition-all hover:border-[#8CC63F] hover:shadow-md">
-            <div className="flex items-center gap-3.5">
-              <TeamLogo team={t} size="sm" />
-              <div>
-                <h3 className="text-base font-black uppercase tracking-wide text-slate-900 group-hover:text-[#629221]">
-                  {t.team_name}
-                </h3>
-                <p className="text-xs font-bold text-slate-400">{t.owner_name || "Team Owner"}</p>
-              </div>
-            </div>
-
-            <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-              <Mini label="Purse" value={`₹${money(t.total_purse)}`} />
-              <Mini label="Spent" value={`₹${money(t.used_amount)}`} />
-              <Mini label="Balance" value={`₹${money(t.remaining_purse)}`} highlight />
-              <Mini label="Max Bid" value={`₹${money(maxBid)}`} />
-              <Mini label="Squad Size" value={purchased} />
-              <Mini label="Slots Left" value={slotsLeft} />
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function CategorySummary({ rows = [] }) {
   if (!rows.length) return <Empty text="No category data recorded" />;
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 grid-cols-1 xs:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {rows.map((c) => (
         <div key={c.category || "none"} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <div className="flex items-center justify-between border-b border-slate-200 pb-3">
