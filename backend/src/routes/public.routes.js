@@ -126,4 +126,31 @@ router.get("/auction/:auctionId/reports/team-summary", async (req, res) => {
   }
 });
 
+// ── GET /api/public/auctions ─────────────────────────────────────────────────
+router.get("/auctions", async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT
+         a.id,
+         a.public_slug,
+         a.auction_name,
+         a.venue,
+         a.auction_date,
+         a.total_purse_per_team,
+         a.auction_logo_url,
+         a.status,
+         o.organization_name AS organization_name
+       FROM auctions a
+       LEFT JOIN organizations o ON a.organization_id = o.id
+       WHERE a.is_active = 1 AND COALESCE(a.is_deleted, 0) = 0 AND a.status != 'COMPLETED'
+       ORDER BY a.auction_date ASC, a.id DESC`
+    );
+
+    res.json(rows);
+  } catch (error) {
+    console.error("public auctions error", error);
+    sendError(res, error);
+  }
+});
+
 module.exports = router;

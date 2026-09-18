@@ -223,7 +223,7 @@ export default function PublicDashboardView() {
             </div>
             <div>
               <h1 className="text-xl sm:text-2xl lg:text-3xl font-black italic uppercase leading-tight tracking-tight text-slate-900">
-                BPL <span className="text-[#EC008C]">SEASON 9</span> AUCTION
+                {auction?.auction_name || <span className="text-[#EC008C]">Auction</span>}
               </h1>
               <p className="mt-0.5 text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-400">
                 REAL-TIME TEAM ROSTERS &bull; PLAYER BIDS &bull; CATEGORY &bull; ANALYTICS
@@ -309,8 +309,7 @@ export default function PublicDashboardView() {
                 ["teams", "TEAMS OVERVIEW", Shield],
                 ["sold", "SOLD PLAYERS", UserCheck],
                 ["unsold", "UNSOLD PLAYERS", UserMinus],
-                ["pending", "PENDING POOL", Clock],
-                ["category", "CATEGORY STATS", PieChart],
+                ["pending", "PENDING POOL", Clock]
               ].map(([tab, label, Icon]) => (
                 <button
                   key={tab}
@@ -400,7 +399,7 @@ export default function PublicDashboardView() {
         {/* Footer */}
         <footer className="mt-5 sm:mt-6 flex flex-col sm:flex-row items-center justify-between gap-2 border-t border-white/40 pt-4 text-[11px] sm:text-xs font-black uppercase tracking-wider text-slate-700">
           <p>
-            BPL SEASON 9 <span className="mx-1.5 text-slate-400">|</span> Players
+            {auction?.auction_name || "Auction"} <span className="mx-1.5 text-slate-400">|</span> Players
             <span className="mx-1.5 text-slate-400">&bull;</span> Passion
             <span className="mx-1.5 text-slate-400">&bull;</span> Bigger Dreams
           </p>
@@ -442,14 +441,18 @@ function TeamsGrid({ rows = [], auction, soldPlayers = [] }) {
   return (
     <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
       {rows.map((t, idx) => {
-        const purchased = soldPlayers.filter((p) => p.sold_team_id === t.id).length;
-        const squadSize = t.squad_size ?? purchased;
+        // Backend returns: id, team_name, owner_name, logo_url, total_purse, remaining_purse, used_amount
+        // plus max_bid_allowed (augmented by route handler)
+        const totalPurse = Number(t.total_purse || 0);
+        const spent = Number(t.used_amount || 0);
+        const balance = Number(t.remaining_purse ?? (totalPurse - spent));
+        const maxBid = Number(t.max_bid_allowed ?? t.max_bid ?? balance);
+        const ownerName = t.owner_name || "";
+        // squad_size: count from soldPlayers or use squad_size if server provides it
+        const squadSize = typeof t.squad_size === "number"
+          ? t.squad_size
+          : soldPlayers.filter((p) => String(p.sold_team_id) === String(t.id)).length;
         const slotsLeft = Math.max(0, squadLimit - squadSize);
-        const totalPurse = t.total_purse || t.purse || 10000;
-        const spent = t.used_amount ?? t.spent ?? 0;
-        const balance = t.remaining_purse ?? (totalPurse - spent);
-        const maxBid = t.max_bid_allowed ?? t.max_bid ?? balance;
-        const ownerName = t.owner_name || t.owner || t.captain_name || t.captain || "";
         const usedPct = totalPurse > 0 ? Math.min(100, Math.round((spent / totalPurse) * 100)) : 0;
         const accent = ACCENTS[idx % ACCENTS.length];
 
@@ -618,10 +621,11 @@ function CategorySummary({ rows = [] }) {
             <Trophy className="h-4 w-4 text-slate-400" />
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <Mini label="Total" value={c.total_players} />
-            <Mini label="Sold" value={c.sold_players} />
-            <Mini label="Unsold" value={c.unsold_players} />
-            <Mini label="Pending" value={c.pending_players} />
+            {/* Backend SP returns: category, total, sold, unsold, pending */}
+            <Mini label="Total" value={c.total ?? c.total_players ?? 0} />
+            <Mini label="Sold" value={c.sold ?? c.sold_players ?? 0} />
+            <Mini label="Unsold" value={c.unsold ?? c.unsold_players ?? 0} />
+            <Mini label="Pending" value={c.pending ?? c.pending_players ?? 0} />
           </div>
         </div>
       ))}

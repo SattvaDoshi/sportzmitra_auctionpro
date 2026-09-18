@@ -1,99 +1,38 @@
 import { Lock, Menu, ArrowRight, Clock } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/api";
 
-const ONGOING_AUCTIONS = [
-  {
-    id: "ongoing-1",
-    title: "Signed Bat - Virat Kohli",
-    location: "Mumbai",
-    person: "V. V. S. Laxman",
-    purse: "₹50,000",
-    currentBid: "₹52,000",
-    image: "https://placehold.co/160x128?text=Signed+Bat",
-  },
-  {
-    id: "ongoing-2",
-    title: "Team India Jersey",
-    location: "Dubai",
-    person: "Team India (Squad)",
-    purse: "₹75,000",
-    currentBid: "₹36,500",
-    image: "https://placehold.co/160x128?text=Team+Jersey",
-  },
-];
 
-const UPCOMING_AUCTIONS = [
-  {
-    id: "upcoming-1",
-    title: "Match-Worn Boots - Sunil Chhetri",
-    location: "Bengaluru",
-    person: "Sunil Chhetri",
-    purse: "₹40,000",
-    startsIn: "Starts in 2d",
-    image: "https://placehold.co/160x128?text=Boots",
-  },
-  {
-    id: "upcoming-2",
-    title: "Championship Trophy Replica",
-    location: "Delhi",
-    person: "FC Delhi",
-    purse: "₹60,000",
-    startsIn: "Starts in 5d",
-    image: "https://placehold.co/160x128?text=Trophy",
-  },
-];
 
-function AuctionCard({ item, status }) {
-  const isLive = status === "ONGOING";
-  return (
-    <div className="flex w-64 shrink-0 flex-col gap-3 rounded-2xl bg-white p-3.5 shadow-sm ring-1 ring-slate-100 sm:w-auto sm:shrink sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-      <div className="flex items-center gap-3">
-        <div className="h-14 w-16 shrink-0 overflow-hidden rounded-xl bg-slate-100">
-          <img
-            src={item.image}
-            alt={item.title}
-            className="h-full w-full object-cover"
-          />
-        </div>
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="truncate text-[13px] font-bold text-slate-900">
-              {item.title}
-            </h3>
-          </div>
-          <p className="mt-0.5 truncate text-[11px] text-slate-400">
-            {item.location} • {item.person}
-          </p>
-          <p className="text-[11px] text-slate-400">Purse: {item.purse}</p>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-2.5 sm:flex-col sm:items-end sm:border-0 sm:pt-0">
-        <div>
-          {isLive ? (
-            <>
-              <span className="block text-[10px] text-slate-400">
-                Current Bid
-              </span>
-              <span className="text-sm font-extrabold text-slate-900">
-                {item.currentBid}
-              </span>
-            </>
-          ) : (
-            <span className="flex items-center gap-1 text-[11px] font-semibold text-slate-500">
-              <Clock size={12} />
-              {item.startsIn}
-            </span>
-          )}
-        </div>
-        <button className="whitespace-nowrap rounded-xl bg-[#EC008C] px-3.5 py-2 text-[11px] font-bold text-white shadow-sm transition hover:bg-[#d4007d] active:scale-95">
-          {isLive ? "View & Bid" : "Notify Me"}
-        </button>
-      </div>
-    </div>
-  );
+function AuctionCard({ item }) {
+  const imageSrc = item.auction_logo_url || "https://placehold.co/160x128?text=No+Logo";
+  return (
+    <div className="flex w-64 shrink-0 flex-col gap-3 rounded-2xl bg-white p-3.5 shadow-sm ring-1 ring-slate-100 sm:w-auto sm:shrink sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <div className="flex items-center gap-3">
+        <div className="h-14 w-16 shrink-0 overflow-hidden rounded-xl bg-slate-100">
+          <img
+            src={imageSrc}
+            alt={item.auction_name}
+            className="h-full w-full object-cover"
+          />
+        </div>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="truncate text-[13px] font-bold text-slate-900">
+              {item.auction_name}
+            </h3>
+          </div>
+          <p className="mt-0.5 truncate text-[11px] text-slate-400">
+            {item.venue || "TBD"} • {item.organization_name || "Unknown"}
+          </p>
+          <p className="text-[11px] text-slate-400">
+            Purse: {item.total_purse_per_team ? `₹${Number(item.total_purse_per_team).toLocaleString('en-IN')}` : "TBD"}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function Login() {
@@ -107,9 +46,29 @@ export default function Login() {
   const [tab, setTab] = useState("MOBILE"); // MOBILE or ADMIN
   const [rememberMe, setRememberMe] = useState(false);
   const [auctionTab, setAuctionTab] = useState("ONGOING"); // ONGOING or UPCOMING
+  const [auctions, setAuctions] = useState([]);
+  const [loadingAuctions, setLoadingAuctions] = useState(true);
 
-  const activeAuctions =
-    auctionTab === "ONGOING" ? ONGOING_AUCTIONS : UPCOMING_AUCTIONS;
+  useEffect(() => {
+    const fetchAuctions = async () => {
+      try {
+        setLoadingAuctions(true);
+        const res = await api.get("/public/auctions");
+        setAuctions(res.data || []);
+      } catch (err) {
+        console.error("Failed to fetch auctions:", err);
+      } finally {
+        setLoadingAuctions(false);
+      }
+    };
+    fetchAuctions();
+  }, []);
+
+  const ongoingAuctions = auctions.filter(a => ['LIVE', 'PAUSED'].includes(a.status));
+  const upcomingAuctions = auctions.filter(a => !['LIVE', 'PAUSED', 'COMPLETED'].includes(a.status));
+
+  const activeAuctions =
+    auctionTab === "ONGOING" ? ongoingAuctions : upcomingAuctions;
 
   async function sendOtp() {
     try {
@@ -254,10 +213,16 @@ export default function Login() {
 
             {/* Auction Cards - horizontal slider on mobile, list on larger screens */}
             <div className="no-scrollbar mt-3 flex gap-3 overflow-x-auto pb-1 sm:mt-4 sm:flex-col sm:gap-3 sm:overflow-visible">
-              {activeAuctions.map((item) => (
-                <AuctionCard key={item.id} item={item} status={auctionTab} />
-              ))}
-            </div>
+              {loadingAuctions ? (
+                <div className="text-sm text-slate-500">Loading auctions...</div>
+              ) : activeAuctions.length > 0 ? (
+                activeAuctions.map((item) => (
+                  <AuctionCard key={item.id} item={item} />
+                ))
+              ) : (
+                <div className="text-sm text-slate-500">No {auctionTab.toLowerCase()} auctions found.</div>
+              )}
+            </div>
           </div>
 
           {/* RIGHT PANEL - Authentication Form */}

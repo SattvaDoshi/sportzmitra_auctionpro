@@ -162,26 +162,28 @@ export default function PublicLiveView() {
     ...t,
     accent: TEAM_ACCENTS[i % TEAM_ACCENTS.length],
     resolvedLogo: t.logo_url ? getImageUrl(t.logo_url) : dicebearLogo(t.team_name),
-    displayPurse: t.remaining_purse ?? t.remaining_budget ?? 0,
-    startingPurse: t.total_purse ?? t.starting_purse ?? t.total_budget ?? 0,
+    // SP returns: total_purse, remaining_purse, used_amount
+    displayPurse: Number(t.remaining_purse ?? t.remaining_budget ?? 0),
+    startingPurse: Number(t.total_purse ?? t.starting_purse ?? t.total_budget ?? 0),
   }));
 
   const soldPlayers = snapshot?.soldPlayers || [];
 
+  // soldPlayers from SP: id, player_name, photo_url, player_role, sold_price, sold_team_name (joined)
   const recentUpdates = soldPlayers.slice(0, 6).map((p, i) => ({
     id: p.id || i,
-    team_name: p.sold_team_name,
-    amount: p.sold_price,
+    team_name: p.sold_team_name || p.team_name,
+    amount: p.sold_price || p.sold_amount,
     message: p.player_name,
   }));
 
   const latestBids = soldPlayers.slice(0, 6).map((p, i) => ({
     id: p.id || i,
     player_name: p.player_name,
-    player_role: p.player_role,
+    player_role: p.player_role || p.batting_style || "",
     photo_url: p.photo_url,
-    amount: p.sold_price,
-    team_name: p.sold_team_name,
+    amount: p.sold_price || p.sold_amount,
+    team_name: p.sold_team_name || p.team_name,
   }));
 
   const seasonLabel = auction?.season_label || auction?.auction_name || "Auction Arena";
@@ -343,9 +345,14 @@ export default function PublicLiveView() {
                   <Users className="h-4 w-4 text-[#E5007D]" />
                   Teams &amp; Remaining Budget
                 </div>
-                <button className="flex shrink-0 items-center gap-1 text-[10px] font-black uppercase tracking-widest text-[#E5007D] hover:opacity-70">
+                <a
+                  href={`/live/${publicSlug}/dashboard`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex shrink-0 items-center gap-1 text-[10px] font-black uppercase tracking-widest text-[#E5007D] hover:opacity-70"
+                >
                   View All Teams <ChevronRight className="h-3 w-3" />
-                </button>
+                </a>
               </div>
 
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
