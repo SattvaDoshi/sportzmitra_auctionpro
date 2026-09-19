@@ -614,4 +614,243 @@ router.get(
   }
 );
 
+// ── Admin-wide dashboard summary ──────────────────────────────────────────────
+// GET /api/auctions/admin-dashboard-summary
+// Aggregates data across all orgs the logged-in admin manages and returns
+// everything the Dashboard page needs in a single request.
+router.get(
+  "/admin-dashboard-summary",
+  authMiddleware,
+  requireRole("AUCTION_ADMIN", "SUPER_ADMIN"),
+  async (req, res) => {
+    try {
+      const userId = req.user.userId;
+      const isSuperAdmin = req.user.role === "SUPER_ADMIN";
+
+      // 1. Resolve which organization IDs this user can see
+      let orgIds = [];
+      if (isSuperAdmin) {
+        const [orgs] = await pool.query(
+          `SELECT id FROM organizations WHERE COALESCE(status,'ACTIVE') = 'ACTIVE'`
+        );
+        orgIds = orgs.map((o) => o.id);
+      } else {
+        const [orgs] = await pool.query(
+          `SELECT organization_id AS id FROM organization_admins
+           WHERE user_id = ? AND status = 'ACTIVE'`,
+          [userId]
+        );
+        orgIds = orgs.map((o) => o.id);
+      }
+
+      if (orgIds.length === 0) {
+        return res.json({
+          liveAuction: null,
+          stats: { activeAuctions: 0, playersSold: 0, totalSaleValue: 0, unsoldPlayers: 0 },
+          upcomingAuctions: [],
+          teams: [],
+          recentPlayers: [],
+        });
+      }
+
+      const placeholders = orgIds.map(() => "?").join(",");
+
+      // 2. Stats — aggregate across all auctions the admin manages
+      const [statsRows] = await pool.query(
+        `SELECT
+           COUNT(DISTINCT a.id)                                                     AS active_auctions,
+           COUNT(CASE WHEN p.status = 'SOLD' THEN 1 END)                           AS players_sold,
+           COALESCE(SUM(CASE WHEN p.status = 'SOLD' THEN p.sold_price END), 0)     AS total_sale_value,
+           COUNT(CASE WHEN p.status IN ('UNSOLD','FINAL_UNSOLD') THEN 1 END)       AS unsold_players
+         FROM auctions a
+         LEFT JOIN players p ON p.auction_id = a.id AND COALESCE(p.is_deleted,0)=0
+         WHERE a.organization_id IN (${placeholders})
+           AND COALESCE(a.is_deleted,0) = 0
+           AND COALESCE(a.is_active,1) = 1
+           AND a.status IN ('LIVE','PAUSED','READY','DRAFT')`,
+        orgIds
+      );
+      const stats = statsRows[0] || {};
+
+      // 3. Find the "live" auction (LIVE first, then PAUSED, then latest READY)
+      const [liveRows] = await pool.query(
+        `SELECT
+           a.id,
+           a.auction_name,
+           a.status,
+           a.public_slug,
+           s.updated_at AS started_at
+         FROM auctions a
+         LEFT JOIN auction_state s ON s.auction_id = a.id
+         WHERE a.organization_id IN (${placeholders})
+           AND COALESCE(a.is_deleted,0) = 0
+           AND COALESCE(a.is_active,1) = 1
+           AND a.status IN ('LIVE','PAUSED')
+         ORDER BY FIELD(a.status,'LIVE','PAUSED') ASC, a.id DESC
+         LIMIT 1`,
+        orgIds
+      );
+
+      let liveAuction = null;
+
+      if (liveRows.length > 0) {
+        const la = liveRows[0];
+        const [soldRow] = await pool.query(
+          `SELECT
+             COUNT(CASE WHEN status='SOLD' THEN 1 END)                     AS sold,
+             COUNT(*)                                                       AS total
+           FROM players
+           WHERE auction_id = ? AND COALESCE(is_deleted,0) = 0`,
+          [la.id]
+        );
+        liveAuction = {
+          id: la.id,
+          title: la.auction_name,
+          status: la.status,
+          publicSlug: la.public_slug,
+          sold: soldRow[0]?.sold || 0,
+          total: soldRow[0]?.total || 0,
+          startedAt: la.started_at,
+        };
+      }
+
+      // 4. Upcoming auctions (DRAFT or READY, ordered by auction_date)
+      const [upcomingRows] = await pool.query(
+        `SELECT
+           a.id,
+           a.auction_name,
+           a.auction_date,
+           a.status,
+           a.auction_logo_url
+         FROM auctions a
+         WHERE a.organization_id IN (${placeholders})
+           AND COALESCE(a.is_deleted,0) = 0
+           AND COALESCE(a.is_active,1) = 1
+           AND a.status IN ('DRAFT','READY')
+         ORDER BY a.auction_date ASC, a.id DESC
+         LIMIT 6`,
+        orgIds
+      );
+
+      const upcomingAuctions = upcomingRows.map((a) => {
+        const words = (a.auction_name || "").trim().split(/\s+/).filter(Boolean);
+        const short =
+          words.length >= 2
+            ? (words[0][0] + words[1][0]).toUpperCase()
+            : (a.auction_name || "AU").slice(0, 3).toUpperCase();
+        let dateStr = "";
+        let timeStr = "";
+        if (a.auction_date) {
+          const d = new Date(a.auction_date);
+          dateStr = d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+          timeStr = d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
+        }
+        return {
+          id: a.id,
+          short,
+          title: a.auction_name,
+          date: dateStr,
+          time: timeStr,
+          status: a.status === "READY" ? "Ready" : "Draft",
+          logoUrl: a.auction_logo_url || null,
+        };
+      });
+
+      // 5. Team purse leaderboard — from the live auction (or latest active)
+      let teams = [];
+      const targetAuctionId = liveAuction?.id ?? null;
+
+      if (targetAuctionId) {
+        const [teamRows] = await pool.query(
+          `SELECT
+             t.id,
+             t.team_name,
+             t.total_purse,
+             t.remaining_purse,
+             t.logo_url
+           FROM teams t
+           WHERE t.auction_id = ?
+             AND COALESCE(t.is_deleted,0) = 0
+             AND t.status = 'ACTIVE'
+           ORDER BY t.remaining_purse ASC
+           LIMIT 10`,
+          [targetAuctionId]
+        );
+
+        // Rank by remaining_purse ascending (most spent = highest rank)
+        teams = teamRows.map((t, idx) => {
+          const totalPurse = Number(t.total_purse) || 0;
+          const remainingPurse = Number(t.remaining_purse) || 0;
+          const usedPurse = totalPurse - remainingPurse;
+          const percent = totalPurse > 0 ? Math.round((usedPurse / totalPurse) * 100) : 0;
+          return {
+            rank: idx + 1,
+            id: t.id,
+            name: t.team_name,
+            purse: `₹${remainingPurse.toLocaleString("en-IN")}`,
+            remainingPurse,
+            totalPurse,
+            percent,
+            logoUrl: t.logo_url || null,
+          };
+        });
+      }
+
+      // 6. Recently sold players — from the live auction
+      let recentPlayers = [];
+      if (targetAuctionId) {
+        const [playerRows] = await pool.query(
+          `SELECT
+             p.id,
+             p.player_name,
+             p.sold_price,
+             p.sold_at,
+             p.photo_url,
+             t.team_name
+           FROM players p
+           LEFT JOIN teams t ON t.id = p.sold_team_id
+           WHERE p.auction_id = ?
+             AND p.status = 'SOLD'
+             AND COALESCE(p.is_deleted,0) = 0
+           ORDER BY p.sold_at DESC
+           LIMIT 5`,
+          [targetAuctionId]
+        );
+
+        recentPlayers = playerRows.map((p) => ({
+          id: p.id,
+          name: p.player_name,
+          team: p.team_name || "—",
+          amount: `₹${Number(p.sold_price || 0).toLocaleString("en-IN")}`,
+          soldAt: p.sold_at,
+          time: p.sold_at
+            ? new Date(p.sold_at).toLocaleTimeString("en-IN", {
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: true,
+              })
+            : "",
+          photoUrl: p.photo_url || null,
+        }));
+      }
+
+      return res.json({
+        liveAuction,
+        stats: {
+          activeAuctions: Number(stats.active_auctions || 0),
+          playersSold: Number(stats.players_sold || 0),
+          totalSaleValue: Number(stats.total_sale_value || 0),
+          unsoldPlayers: Number(stats.unsold_players || 0),
+        },
+        upcomingAuctions,
+        teams,
+        recentPlayers,
+      });
+    } catch (error) {
+      console.error("admin-dashboard-summary error", error);
+      sendError(res, error);
+    }
+  }
+);
+
 module.exports = router;
