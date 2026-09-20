@@ -48,54 +48,26 @@ echo ""
 
 SERVER_IP="201.18.193.28"
 DOMAIN="201.18.193.28"
-info "Using hardcoded Server IP and Domain: $SERVER_IP"
-
-read -rp "App deploy directory [/var/www/sportzmitra]: " APP_DIR
-APP_DIR="${APP_DIR:-/var/www/sportzmitra}"
-
+APP_DIR="/var/www/sportzmitra"
 DB_ROOT_PASS="SportzAuction@4321"
 DB_NAME="sportzmitra_auction"
 DB_USER="root"
 DB_PASS="SportzAuction@4321"
+BACKEND_PORT="5000"
+JWT_SECRET=$(openssl rand -hex 32)
+ENABLE_HTTPS="n"
+PROTOCOL="http"
+FRONTEND_ORIGIN="http://${DOMAIN}"
+LE_EMAIL=""
 
-info "Using hardcoded MySQL credentials:"
-echo "  DB_NAME: $DB_NAME"
-echo "  DB_USER: $DB_USER"
-
-read -rp "Backend port [5000]: " BACKEND_PORT
-BACKEND_PORT="${BACKEND_PORT:-5000}"
-
-read -rp "JWT secret (leave blank to auto-generate): " JWT_SECRET
-[[ -z "$JWT_SECRET" ]] && JWT_SECRET=$(openssl rand -hex 32)
-
-read -rp "Enable HTTPS via Let's Encrypt Certbot? (y/n) [y]: " ENABLE_HTTPS
-ENABLE_HTTPS="${ENABLE_HTTPS:-y}"
-
-if [[ "$DOMAIN" == "$SERVER_IP" ]]; then
-  ENABLE_HTTPS="n"
-  info "Using IP address, forcing HTTPS to 'n'."
-  PROTOCOL="http"
-else
-  PROTOCOL=$([[ "$ENABLE_HTTPS" == "y" ]] && echo "https" || echo "http")
-fi
-
-read -rp "Frontend origin URL (e.g. $PROTOCOL://$DOMAIN) [$PROTOCOL://$DOMAIN]: " FRONTEND_ORIGIN
-FRONTEND_ORIGIN="${FRONTEND_ORIGIN:-$PROTOCOL://$DOMAIN}"
-
-read -rp "Your email for Let's Encrypt notifications: " LE_EMAIL
-
+info "Configuration (fully hardcoded — no prompts):"
+echo "  Server IP / Domain: $SERVER_IP"
+echo "  App directory:      $APP_DIR"
+echo "  DB name:            $DB_NAME"
+echo "  DB user:            $DB_USER"
+echo "  Backend port:       $BACKEND_PORT"
+echo "  HTTPS:              $ENABLE_HTTPS"
 echo ""
-info "Configuration summary:"
-echo "  Domain:           $DOMAIN"
-echo "  Server IP:        $SERVER_IP"
-echo "  App directory:    $APP_DIR"
-echo "  DB name:          $DB_NAME"
-echo "  DB user:          $DB_USER"
-echo "  Backend port:     $BACKEND_PORT"
-echo "  HTTPS:            $ENABLE_HTTPS"
-echo ""
-read -rp "Proceed with deployment? (y/n): " CONFIRM
-[[ "$CONFIRM" != "y" ]] && { info "Aborted."; exit 0; }
 
 # =============================================================================
 # STEP 1 — System packages
@@ -136,38 +108,74 @@ success "PM2 $(pm2 -v) installed."
 # =============================================================================
 section "STEP 3 · MySQL 8"
 
-if ! command -v mysql &>/dev/null; then
-  apt-get install -y mysql-server
-fi
+# ── Helper: is MySQL running and connectable? ─────────────────────────────────
+mysql_connect_no_pass()  { mysql --user=root                         -e "QUIT" 2>/dev/null; }
+mysql_connect_with_pass(){ mysql --user=root --password="${DB_ROOT_PASS}" -e "QUIT" 2>/dev/null; }
 
-# Secure MySQL and set root password
-if mysql --user=root -e "QUIT" 2>/dev/null; then
-  MYSQL_CONN="mysql --user=root"
-elif mysql --user=root --password="${DB_ROOT_PASS}" -e "QUIT" 2>/dev/null; then
-  MYSQL_CONN="mysql --user=root --password=${DB_ROOT_PASS}"
-else
-  warn "MySQL root password mismatch. Forcing a password reset..."
-  systemctl stop mysql
-  echo "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_ROOT_PASS}';" > /tmp/reset_pwd.sql
-  chown mysql:mysql /tmp/reset_pwd.sql
-  /usr/sbin/mysqld --user=mysql --init-file=/tmp/reset_pwd.sql &
-  MYSQLD_PID=$!
-  sleep 10
-  kill $MYSQLD_PID 2>/dev/null || true
-  sleep 3
-  pkill -9 mysqld 2>/dev/null || true
+# ── Full reinstall if /var/lib/mysql is missing or empty ──────────────────────
+if [ ! -d "/var/lib/mysql" ] || [ -z "$(ls -A /var/lib/mysql 2>/dev/null)" ]; then
+  warn "/var/lib/mysql is missing/empty — doing a full MySQL reinstall..."
+  apt-get purge -y --auto-remove mysql-server mysql-client mysql-common \
+    mysql-server-core-* mysql-client-core-* 2>/dev/null || true
+  rm -rf /etc/mysql /var/lib/mysql /var/log/mysql
+  apt-get install -y mysql-server
   systemctl start mysql
   sleep 5
-  
-  if mysql --user=root --password="${DB_ROOT_PASS}" -e "QUIT" 2>/dev/null; then
-    MYSQL_CONN="mysql --user=root --password=${DB_ROOT_PASS}"
+fi
+
+# ── If mysql binary is missing, install it ───────────────────────────────────
+if ! command -v mysql &>/dev/null; then
+  apt-get install -y mysql-server
+  systemctl start mysql
+  sleep 5
+fi
+
+# ── Make sure the service is running ─────────────────────────────────────────
+systemctl start mysql 2>/dev/null || true
+sleep 3
+
+# ── Determine how to connect as root ─────────────────────────────────────────
+if mysql_connect_no_pass; then
+  info "MySQL root: no-password login (fresh install)."
+  MYSQL_ROOT_CMD="mysql --user=root"
+
+elif mysql_connect_with_pass; then
+  info "MySQL root: authenticated with the hardcoded password."
+  MYSQL_ROOT_CMD="mysql --user=root --password=${DB_ROOT_PASS}"
+
+else
+  # ── Last-resort: skip-grant-tables trick ─────────────────────────────────
+  warn "MySQL root: both logins failed — using skip-grant-tables to force reset..."
+  systemctl stop mysql
+  sleep 2
+  mysqld_safe --skip-grant-tables --skip-networking &
+  SAFE_PID=$!
+  sleep 8
+
+  mysql --user=root 2>/dev/null <<GRANT_RESET
+    FLUSH PRIVILEGES;
+    ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_ROOT_PASS}';
+    FLUSH PRIVILEGES;
+GRANT_RESET
+
+  kill $SAFE_PID 2>/dev/null || true
+  sleep 3
+  pkill -9 mysqld_safe 2>/dev/null || true
+  pkill -9 mysqld      2>/dev/null || true
+  sleep 2
+  systemctl start mysql
+  sleep 5
+
+  if mysql_connect_with_pass; then
+    MYSQL_ROOT_CMD="mysql --user=root --password=${DB_ROOT_PASS}"
     success "Root password forcefully reset!"
   else
-    die "Cannot connect to MySQL as root even after attempting a force reset."
+    die "Cannot connect to MySQL as root even after skip-grant-tables reset. Please fully wipe MySQL manually and re-run."
   fi
 fi
 
-$MYSQL_CONN <<MYSQL_SECURE
+# ── Set/confirm root password and harden ─────────────────────────────────────
+$MYSQL_ROOT_CMD <<MYSQL_SECURE
   ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_ROOT_PASS}';
   DELETE FROM mysql.user WHERE User='';
   DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost','127.0.0.1','::1');
@@ -178,32 +186,26 @@ MYSQL_SECURE
 
 success "MySQL root secured."
 
-# Tune MySQL for 8 GB RAM VPS
+# ── Tune MySQL for 8 GB RAM VPS ───────────────────────────────────────────────
+mkdir -p /etc/mysql/mysql.conf.d
 cat > /etc/mysql/mysql.conf.d/sportzmitra.cnf <<MYCNF
 [mysqld]
-# Memory — use ~3 GB for InnoDB buffer pool (leave rest for OS + Node)
 innodb_buffer_pool_size         = 3G
 innodb_buffer_pool_instances    = 2
 innodb_log_file_size            = 256M
 innodb_flush_log_at_trx_commit  = 2
 innodb_flush_method             = O_DIRECT
-
-# Connections — 2 PM2 workers × 10 conns = 20 app + headroom
 max_connections                 = 200
 wait_timeout                    = 60
 interactive_timeout             = 60
-
-# Query cache (disabled in MySQL 8 by default — good)
-# Performance schema
 performance_schema              = OFF
-
-# Slow query log for debugging
 slow_query_log                  = 1
 slow_query_log_file             = /var/log/mysql/slow.log
 long_query_time                 = 2
 MYCNF
 
 systemctl restart mysql
+sleep 3
 success "MySQL tuned and restarted."
 
 # =============================================================================
