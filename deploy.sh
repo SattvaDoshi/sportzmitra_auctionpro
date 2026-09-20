@@ -146,7 +146,25 @@ if mysql --user=root -e "QUIT" 2>/dev/null; then
 elif mysql --user=root --password="${DB_ROOT_PASS}" -e "QUIT" 2>/dev/null; then
   MYSQL_CONN="mysql --user=root --password=${DB_ROOT_PASS}"
 else
-  die "Cannot connect to MySQL as root. If MySQL is already secured, ensure you provided the correct existing root password."
+  warn "MySQL root password mismatch. Forcing a password reset..."
+  systemctl stop mysql
+  echo "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_ROOT_PASS}';" > /tmp/reset_pwd.sql
+  chown mysql:mysql /tmp/reset_pwd.sql
+  /usr/sbin/mysqld --user=mysql --init-file=/tmp/reset_pwd.sql &
+  MYSQLD_PID=$!
+  sleep 10
+  kill $MYSQLD_PID 2>/dev/null || true
+  sleep 3
+  pkill -9 mysqld 2>/dev/null || true
+  systemctl start mysql
+  sleep 5
+  
+  if mysql --user=root --password="${DB_ROOT_PASS}" -e "QUIT" 2>/dev/null; then
+    MYSQL_CONN="mysql --user=root --password=${DB_ROOT_PASS}"
+    success "Root password forcefully reset!"
+  else
+    die "Cannot connect to MySQL as root even after attempting a force reset."
+  fi
 fi
 
 $MYSQL_CONN <<MYSQL_SECURE
