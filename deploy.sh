@@ -46,30 +46,21 @@ echo -e "${BOLD}SportzMitra AuctionPro Deployment${RESET}"
 echo "Press ENTER to accept the [default] shown in brackets."
 echo ""
 
-read -rp "Your server's public IP address [auto-detect]: " SERVER_IP
-[[ -z "$SERVER_IP" ]] && SERVER_IP=$(curl -s https://api.ipify.org || curl -s https://checkip.amazonaws.com | tr -d '\n')
-info "Server IP: $SERVER_IP"
-
-read -rp "Your domain name (e.g. auction.yourdomain.com) [Leave blank to use IP]: " DOMAIN
-if [[ -z "$DOMAIN" ]]; then
-  DOMAIN="$SERVER_IP"
-  info "No domain provided. Using IP: $DOMAIN"
-fi
+SERVER_IP="201.18.193.28"
+DOMAIN="201.18.193.28"
+info "Using hardcoded Server IP and Domain: $SERVER_IP"
 
 read -rp "App deploy directory [/var/www/sportzmitra]: " APP_DIR
 APP_DIR="${APP_DIR:-/var/www/sportzmitra}"
 
-read -rp "MySQL root password (new, will be set now): " -s DB_ROOT_PASS; echo
-[[ -z "$DB_ROOT_PASS" ]] && die "MySQL root password is required."
+DB_ROOT_PASS="SportzAuction@4321"
+DB_NAME="sportzmitra_auction"
+DB_USER="root"
+DB_PASS="SportzAuction@4321"
 
-read -rp "MySQL app database name [sportzmitra_auction]: " DB_NAME
-DB_NAME="${DB_NAME:-sportzmitra_auction}"
-
-read -rp "MySQL app user name [sportzmitra]: " DB_USER
-DB_USER="${DB_USER:-sportzmitra}"
-
-read -rp "MySQL app user password: " -s DB_PASS; echo
-[[ -z "$DB_PASS" ]] && die "MySQL app password is required."
+info "Using hardcoded MySQL credentials:"
+echo "  DB_NAME: $DB_NAME"
+echo "  DB_USER: $DB_USER"
 
 read -rp "Backend port [5000]: " BACKEND_PORT
 BACKEND_PORT="${BACKEND_PORT:-5000}"
@@ -150,7 +141,15 @@ if ! command -v mysql &>/dev/null; then
 fi
 
 # Secure MySQL and set root password
-mysql --user=root <<MYSQL_SECURE
+if mysql --user=root -e "QUIT" 2>/dev/null; then
+  MYSQL_CONN="mysql --user=root"
+elif mysql --user=root --password="${DB_ROOT_PASS}" -e "QUIT" 2>/dev/null; then
+  MYSQL_CONN="mysql --user=root --password=${DB_ROOT_PASS}"
+else
+  die "Cannot connect to MySQL as root. If MySQL is already secured, ensure you provided the correct existing root password."
+fi
+
+$MYSQL_CONN <<MYSQL_SECURE
   ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_ROOT_PASS}';
   DELETE FROM mysql.user WHERE User='';
   DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost','127.0.0.1','::1');
@@ -195,16 +194,25 @@ success "MySQL tuned and restarted."
 section "STEP 4 · Database & Schema"
 
 # Create database and user
-mysql --user=root --password="${DB_ROOT_PASS}" <<MYSQL_SETUP
-  CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`
-    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-  CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost'
-    IDENTIFIED WITH mysql_native_password BY '${DB_PASS}';
-  GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';
-  FLUSH PRIVILEGES;
+if [ "$DB_USER" = "root" ]; then
+  mysql --user=root --password="${DB_ROOT_PASS}" <<MYSQL_SETUP
+    CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`
+      CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO 'root'@'localhost';
+    FLUSH PRIVILEGES;
 MYSQL_SETUP
+else
+  mysql --user=root --password="${DB_ROOT_PASS}" <<MYSQL_SETUP
+    CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`
+      CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost'
+      IDENTIFIED WITH mysql_native_password BY '${DB_PASS}';
+    GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';
+    FLUSH PRIVILEGES;
+MYSQL_SETUP
+fi
 
-success "Database '${DB_NAME}' and user '${DB_USER}' created."
+success "Database '${DB_NAME}' configured for user '${DB_USER}'."
 
 # Import schema (if SQL files exist beside the script)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
