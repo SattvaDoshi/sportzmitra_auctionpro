@@ -144,25 +144,40 @@ elif mysql_connect_with_pass; then
   MYSQL_ROOT_CMD="mysql --user=root --password=${DB_ROOT_PASS}"
 
 else
-  # ── Last-resort: skip-grant-tables trick ─────────────────────────────────
-  warn "MySQL root: both logins failed — using skip-grant-tables to force reset..."
-  systemctl stop mysql
+  # ── Last-resort: direct mysqld --skip-grant-tables ───────────────────────
+  warn "MySQL root: both logins failed — forcing password reset via skip-grant-tables..."
+  systemctl stop mysql 2>/dev/null || true
+  sleep 3
+  pkill -9 mysqld 2>/dev/null || true
+  pkill -9 mysqld_safe 2>/dev/null || true
   sleep 2
-  mysqld_safe --skip-grant-tables --skip-networking &
-  SAFE_PID=$!
+
+  # Ensure socket directory exists (often missing on Percona/Hostinger)
+  mkdir -p /var/run/mysqld
+  chown mysql:mysql /var/run/mysqld
+
+  # Start MySQL without authentication
+  /usr/sbin/mysqld --skip-grant-tables --skip-networking --user=mysql &
+  MYSQLD_PID=$!
   sleep 8
 
-  mysql --user=root 2>/dev/null <<GRANT_RESET
+  # Reset the root password
+  mysql --user=root --socket=/var/run/mysqld/mysqld.sock 2>/dev/null <<GRANT_RESET || \
+  mysql --user=root 2>/dev/null <<GRANT_RESET2
     FLUSH PRIVILEGES;
     ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_ROOT_PASS}';
     FLUSH PRIVILEGES;
 GRANT_RESET
+    FLUSH PRIVILEGES;
+    ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_ROOT_PASS}';
+    FLUSH PRIVILEGES;
+GRANT_RESET2
 
-  kill $SAFE_PID 2>/dev/null || true
+  kill $MYSQLD_PID 2>/dev/null || true
   sleep 3
-  pkill -9 mysqld_safe 2>/dev/null || true
-  pkill -9 mysqld      2>/dev/null || true
+  pkill -9 mysqld 2>/dev/null || true
   sleep 2
+
   systemctl start mysql
   sleep 5
 
@@ -170,7 +185,18 @@ GRANT_RESET
     MYSQL_ROOT_CMD="mysql --user=root --password=${DB_ROOT_PASS}"
     success "Root password forcefully reset!"
   else
-    die "Cannot connect to MySQL as root even after skip-grant-tables reset. Please fully wipe MySQL manually and re-run."
+    # Nuclear option: full wipe and reinstall
+    warn "Force reset failed — doing a full MySQL wipe and reinstall..."
+    systemctl stop mysql 2>/dev/null || true
+    apt-get purge -y --auto-remove mysql-server mysql-client mysql-common \
+      mysql-server-core-* mysql-client-core-* percona-server-server \
+      percona-server-client percona-server-common 2>/dev/null || true
+    rm -rf /etc/mysql /var/lib/mysql /var/log/mysql /var/run/mysqld
+    apt-get install -y mysql-server
+    systemctl start mysql
+    sleep 5
+    MYSQL_ROOT_CMD="mysql --user=root"
+    success "MySQL fully reinstalled clean!"
   fi
 fi
 
