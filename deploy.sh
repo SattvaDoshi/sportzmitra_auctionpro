@@ -161,15 +161,20 @@ else
   MYSQLD_PID=$!
   sleep 8
 
-  # Reset the root password
+  # Reset the root password using UPDATE (required in skip-grant-tables mode,
+  # because ALTER USER needs the grant system and auth plugins loaded)
   mysql --user=root --socket=/var/run/mysqld/mysqld.sock 2>/dev/null <<GRANT_RESET || \
   mysql --user=root 2>/dev/null <<GRANT_RESET2
-    FLUSH PRIVILEGES;
-    ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_ROOT_PASS}';
+    USE mysql;
+    UPDATE user SET plugin='mysql_native_password',
+                    authentication_string=''
+    WHERE User='root' AND Host='localhost';
     FLUSH PRIVILEGES;
 GRANT_RESET
-    FLUSH PRIVILEGES;
-    ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_ROOT_PASS}';
+    USE mysql;
+    UPDATE user SET plugin='mysql_native_password',
+                    authentication_string=''
+    WHERE User='root' AND Host='localhost';
     FLUSH PRIVILEGES;
 GRANT_RESET2
 
@@ -181,8 +186,13 @@ GRANT_RESET2
   systemctl start mysql
   sleep 5
 
-  if mysql_connect_with_pass; then
-    MYSQL_ROOT_CMD="mysql --user=root --password=${DB_ROOT_PASS}"
+  if mysql_connect_with_pass || mysql --user=root -e "QUIT" 2>/dev/null; then
+    # After UPDATE reset, root may have blank password — try both
+    if mysql --user=root -e "QUIT" 2>/dev/null; then
+      MYSQL_ROOT_CMD="mysql --user=root"
+    else
+      MYSQL_ROOT_CMD="mysql --user=root --password=${DB_ROOT_PASS}"
+    fi
     success "Root password forcefully reset!"
   else
     # Nuclear option: full wipe and reinstall
