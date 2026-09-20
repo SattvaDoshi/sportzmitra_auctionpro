@@ -144,69 +144,37 @@ elif mysql_connect_with_pass; then
   MYSQL_ROOT_CMD="mysql --user=root --password=${DB_ROOT_PASS}"
 
 else
-  # ── Last-resort: direct mysqld --skip-grant-tables ───────────────────────
-  warn "MySQL root: both logins failed — forcing password reset via skip-grant-tables..."
+  # ── Nuclear option: Percona/MySQL is locked — full purge and clean reinstall ─
+  warn "MySQL root: both logins failed (likely Percona with auth_socket)."
+  warn "Purging existing MySQL/Percona installation and doing a clean reinstall..."
+
   systemctl stop mysql 2>/dev/null || true
-  sleep 3
-  pkill -9 mysqld 2>/dev/null || true
+  sleep 2
+  pkill -9 mysqld      2>/dev/null || true
   pkill -9 mysqld_safe 2>/dev/null || true
   sleep 2
 
-  # Ensure socket directory exists (often missing on Percona/Hostinger)
-  mkdir -p /var/run/mysqld
-  chown mysql:mysql /var/run/mysqld
+  # Purge everything MySQL/Percona related
+  DEBIAN_FRONTEND=noninteractive apt-get purge -y \
+    mysql-server mysql-client mysql-common \
+    mysql-server-core-* mysql-client-core-* \
+    percona-server-server percona-server-client percona-server-common \
+    percona-server-server-8.0 2>/dev/null || true
+  apt-get autoremove -y 2>/dev/null || true
 
-  # Start MySQL without authentication
-  /usr/sbin/mysqld --skip-grant-tables --skip-networking --user=mysql &
-  MYSQLD_PID=$!
-  sleep 8
+  # Wipe all data dirs so the new install starts fresh
+  rm -rf /etc/mysql /var/lib/mysql /var/log/mysql /var/run/mysqld
 
-  # Reset the root password using UPDATE (required in skip-grant-tables mode,
-  # because ALTER USER needs the grant system and auth plugins loaded)
-  mysql --user=root --socket=/var/run/mysqld/mysqld.sock 2>/dev/null <<GRANT_RESET || \
-  mysql --user=root 2>/dev/null <<GRANT_RESET2
-    USE mysql;
-    UPDATE user SET plugin='mysql_native_password',
-                    authentication_string=''
-    WHERE User='root' AND Host='localhost';
-    FLUSH PRIVILEGES;
-GRANT_RESET
-    USE mysql;
-    UPDATE user SET plugin='mysql_native_password',
-                    authentication_string=''
-    WHERE User='root' AND Host='localhost';
-    FLUSH PRIVILEGES;
-GRANT_RESET2
-
-  kill $MYSQLD_PID 2>/dev/null || true
-  sleep 3
-  pkill -9 mysqld 2>/dev/null || true
-  sleep 2
-
+  # Install official MySQL 8 from Ubuntu repos
+  apt-get install -y mysql-server
   systemctl start mysql
   sleep 5
 
-  if mysql_connect_with_pass || mysql --user=root -e "QUIT" 2>/dev/null; then
-    # After UPDATE reset, root may have blank password — try both
-    if mysql --user=root -e "QUIT" 2>/dev/null; then
-      MYSQL_ROOT_CMD="mysql --user=root"
-    else
-      MYSQL_ROOT_CMD="mysql --user=root --password=${DB_ROOT_PASS}"
-    fi
-    success "Root password forcefully reset!"
-  else
-    # Nuclear option: full wipe and reinstall
-    warn "Force reset failed — doing a full MySQL wipe and reinstall..."
-    systemctl stop mysql 2>/dev/null || true
-    apt-get purge -y --auto-remove mysql-server mysql-client mysql-common \
-      mysql-server-core-* mysql-client-core-* percona-server-server \
-      percona-server-client percona-server-common 2>/dev/null || true
-    rm -rf /etc/mysql /var/lib/mysql /var/log/mysql /var/run/mysqld
-    apt-get install -y mysql-server
-    systemctl start mysql
-    sleep 5
+  if mysql --user=root -e "QUIT" 2>/dev/null; then
     MYSQL_ROOT_CMD="mysql --user=root"
-    success "MySQL fully reinstalled clean!"
+    success "MySQL reinstalled clean — root login works!"
+  else
+    die "MySQL reinstall failed. Run 'journalctl -xeu mysql.service' on the server for details."
   fi
 fi
 
