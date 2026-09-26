@@ -351,9 +351,29 @@ npm run build
 success "Frontend built → $FRONTEND_DIST"
 
 # =============================================================================
-# STEP 7 — Nginx
+# STEP 7 — Firewall (UFW) — must open port 80 BEFORE Certbot ACME challenge
 # =============================================================================
-section "STEP 7 · Nginx"
+section "STEP 7 · Firewall (open ports before HTTPS)"
+
+ufw --force reset
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow ssh
+ufw allow 80/tcp
+ufw allow 443/tcp
+# Do NOT expose 5000 publicly — only Nginx talks to it
+ufw --force enable
+success "UFW firewall configured (SSH + 80 + 443 open)."
+
+# Harden fail2ban for SSH
+systemctl enable fail2ban
+systemctl start fail2ban
+success "fail2ban enabled."
+
+# =============================================================================
+# STEP 8 — Nginx
+# =============================================================================
+section "STEP 8 · Nginx"
 
 # Remove default site
 rm -f /etc/nginx/sites-enabled/default
@@ -593,24 +613,9 @@ systemctl enable nginx
 success "Nginx enabled."
 
 # =============================================================================
-# STEP 9 — Firewall (UFW)
+# STEP 9 — Firewall already configured in Step 7 (before Certbot)
 # =============================================================================
-section "STEP 9 · Firewall"
-
-ufw --force reset
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow ssh
-ufw allow 80/tcp
-ufw allow 443/tcp
-# Do NOT expose 5000 publicly — only Nginx talks to it
-ufw --force enable
-success "UFW firewall configured (SSH + 80 + 443 open)."
-
-# Harden fail2ban for SSH
-systemctl enable fail2ban
-systemctl start fail2ban
-success "fail2ban enabled."
+success "Firewall already configured in Step 7 (UFW: SSH + 80 + 443)."
 
 # =============================================================================
 # STEP 10 — PM2 startup on reboot
