@@ -27,6 +27,12 @@ const isProduction = process.env.NODE_ENV === "production";
 const app = express();
 const server = http.createServer(app);
 
+// Trust nginx reverse proxy — ensures req.protocol === "https" and
+// correct IP forwarding behind the nginx proxy in production
+if (isProduction) {
+  app.set("trust proxy", 1);
+}
+
 // ── CORS ─────────────────────────────────────────────────────────────────────
 const allowedOrigins = [
   process.env.FRONTEND_ORIGIN,
