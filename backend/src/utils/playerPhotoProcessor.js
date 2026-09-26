@@ -121,17 +121,64 @@ async function processUploadedPlayerPhoto(req, file) {
   };
 }
 
-async function downloadImageBuffer(url) {
+/**
+ * Converts any Google Drive sharing/viewer URL into a direct image download URL.
+ *
+ * Supported input formats:
+ *   https://drive.google.com/file/d/<FILE_ID>/view?usp=sharing
+ *   https://drive.google.com/file/d/<FILE_ID>/view
+ *   https://drive.google.com/open?id=<FILE_ID>
+ *   https://drive.google.com/uc?id=<FILE_ID>  (already a download link – unchanged)
+ *
+ * Output:
+ *   https://drive.google.com/uc?export=download&id=<FILE_ID>
+ */
+function normalizeDriveUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname.endsWith("drive.google.com")) return url;
+
+    // Pattern: /file/d/<ID>/view  or  /file/d/<ID>/preview
+    const fileMatch = parsed.pathname.match(/\/file\/d\/([^/]+)/);
+    if (fileMatch) {
+      return `https://drive.google.com/uc?export=download&id=${fileMatch[1]}`;
+    }
+
+    // Pattern: /open?id=<ID>  or  /uc?id=<ID>
+    const idParam = parsed.searchParams.get("id");
+    if (idParam) {
+      return `https://drive.google.com/uc?export=download&id=${idParam}`;
+    }
+  } catch (_) {
+    // Not a valid URL – return as-is and let the fetch fail naturally
+  }
+  return url;
+}
+
+async function downloadImageBuffer(rawUrl) {
+  const url = normalizeDriveUrl(rawUrl);
+
   const response = await fetch(url, {
     redirect: "follow",
     headers: { "user-agent": "SportzMitraAuction/1.0" },
   });
 
   if (!response.ok) {
-    throw new Error(`Photo URL download failed: ${response.status}`);
+    throw new Error(`Photo URL download failed: ${response.status} (${url})`);
   }
 
   const contentType = response.headers.get("content-type") || "";
+
+  // Guard: reject HTML responses (e.g. Drive virus-scan confirmation pages,
+  // or any URL that resolves to a webpage instead of an image)
+  if (contentType.includes("text/html")) {
+    throw new Error(
+      `URL did not return an image (got ${contentType}). ` +
+      `For large Google Drive files the download confirmation page may appear – ` +
+      `ensure the file is publicly shared and under ~25 MB.`
+    );
+  }
+
   const arrayBuffer = await response.arrayBuffer();
   return {
     buffer: Buffer.from(arrayBuffer),

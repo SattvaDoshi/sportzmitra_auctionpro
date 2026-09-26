@@ -165,8 +165,10 @@ else
   # Wipe all data dirs so the new install starts fresh
   rm -rf /etc/mysql /var/lib/mysql /var/log/mysql /var/run/mysqld
 
-  # Install official MySQL 8 from Ubuntu repos
-  apt-get install -y mysql-server
+  # Install official MySQL 8 from Ubuntu repos fully non-interactively
+  DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    -o Dpkg::Options::="--force-confnew" \
+    mysql-server
   systemctl start mysql
   sleep 5
 

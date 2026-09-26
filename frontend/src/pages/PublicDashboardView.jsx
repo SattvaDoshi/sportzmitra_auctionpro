@@ -60,6 +60,9 @@ export default function PublicDashboardView() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
 
+  // State for team players modal
+  const [viewingTeam, setViewingTeam] = useState(null);
+
   const auctionIdRef = useRef(null);
   const debounceRef = useRef(null);
 
@@ -388,6 +391,7 @@ export default function PublicDashboardView() {
               rows={paginatedTeams}
               auction={data.auction}
               soldPlayers={data.soldPlayers || []}
+              onViewTeam={setViewingTeam}
             />
           )}
           {activeTab === "sold" && <PlayerTable rows={filterRows(data.soldPlayers)} type="sold" />}
@@ -414,6 +418,16 @@ export default function PublicDashboardView() {
           </p>
         </footer>
       </div>
+
+      {viewingTeam && (
+        <TeamPlayersModal
+          team={viewingTeam}
+          players={(data.soldPlayers || []).filter(
+            (p) => String(p.sold_team_id) === String(viewingTeam.id)
+          )}
+          onClose={() => setViewingTeam(null)}
+        />
+      )}
     </div>
   );
 }
@@ -433,7 +447,7 @@ function StatCard({ label, value, valueColor = "text-slate-900", icon, badgeBg, 
 }
 
 /* Responsive grid view for Teams: 1 col mobile, 2 cols tablet, 3 on laptop, 4 on large desktop */
-function TeamsGrid({ rows = [], auction, soldPlayers = [] }) {
+function TeamsGrid({ rows = [], auction, soldPlayers = [], onViewTeam }) {
   if (!rows.length) return <Empty text="No teams found matching search criteria" />;
 
   const squadLimit = auction?.players_per_team || auction?.max_players_per_team || 12;
@@ -461,6 +475,14 @@ function TeamsGrid({ rows = [], auction, soldPlayers = [] }) {
             key={t.id}
             className={`group relative overflow-hidden rounded-2xl border ${accent.ring} bg-white p-4 shadow-sm transition hover:shadow-md`}
           >
+            <button
+              onClick={() => onViewTeam(t)}
+              className="absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-slate-600 hover:bg-slate-200 hover:text-slate-900 shadow-sm"
+              title="View Sold Players"
+            >
+              <Users size={12} /> Players
+            </button>
+
             {/* Watermark icon */}
             <Shield
               size={110}
@@ -648,6 +670,76 @@ function Empty({ text }) {
   return (
     <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-xs font-bold text-slate-400">
       {text}
+    </div>
+  );
+}
+
+function TeamPlayersModal({ team, players, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 font-sans backdrop-blur-sm">
+      <div className="flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-100 p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100">
+              {team.logo_url ? (
+                <TeamLogo team={team} size="sm" />
+              ) : (
+                <Shield className="text-slate-400" size={20} />
+              )}
+            </div>
+            <div>
+              <h3 className="text-base sm:text-lg font-black uppercase italic tracking-tight text-slate-900">
+                {team.team_name || team.name}
+              </h3>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                {players.length} Players Sold
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+          >
+            <XCircle size={24} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto bg-slate-50/50 p-4">
+          {players.length === 0 ? (
+            <div className="py-10 text-center font-medium text-slate-500">
+              No players sold to this team yet.
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              {players.map((p) => (
+                <div
+                  key={p.id}
+                  className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-[#8DC63F]"
+                >
+                  <div className="flex items-center gap-3">
+                    <PlayerAvatar name={p.player_name} photoUrl={p.photo_url} size="sm" />
+                    <div>
+                      <div className="font-bold text-slate-900">{p.player_name}</div>
+                      <div className="mt-0.5 flex items-center gap-2 text-[10px] font-semibold uppercase text-slate-500">
+                        <span>{p.category || "N/A"}</span>
+                        <span className="h-1 w-1 rounded-full bg-slate-300"></span>
+                        <span>{p.player_role || "N/A"}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                      Sold For
+                    </div>
+                    <div className="text-sm font-black text-[#629221]">
+                      &#8377;{money(p.sold_price)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

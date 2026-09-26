@@ -78,7 +78,10 @@ export default function PlayersPage() {
   }, [players]);
 
   function downloadTemplate() {
-    const rows = [{ "Player Name": "Rahul Jain", Mobile: "9111111111", Email: "", Category: "A", Role: "ALL_ROUNDER", "Base Price": 500, "T-shirt Size": "XL", Age: 31, Area: "Bhayander", "Previous Team": "", "Photo URL": "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?q=80&w=300&auto=format&fit=crop" }];
+    const rows = [
+      { "Player Name": "Rahul Jain", Mobile: "9111111111", Email: "", Category: "A", Role: "ALL_ROUNDER", "Base Price": 500, "T-shirt Size": "XL", Age: 31, Area: "Bhayander", "Previous Team": "", "Photo URL": "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?q=80&w=300&auto=format&fit=crop" },
+      { "Player Name": "Priya Sharma", Mobile: "9222222222", Email: "", Category: "B", Role: "BATSMAN", "Base Price": 300, "T-shirt Size": "M", Age: 25, Area: "Andheri", "Previous Team": "", "Photo URL": "https://drive.google.com/file/d/YOUR_FILE_ID_HERE/view?usp=sharing" },
+    ];
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(rows);
     XLSX.utils.book_append_sheet(wb, ws, "Players");
