@@ -67,8 +67,20 @@ function useNavItems({ auctionId, organizationId, publicSlug }) {
         external: true,
       },
       { label: "Reports", icon: BarChart3, to: auctionId ? `${auctionBase}/reports` : "#", scope: "auction" },
-      { label: "Public View", icon: Eye, to: publicSlug ? `/live/${publicSlug}` : "#", scope: "auction" },
-      { label: "YouTube Overlay", icon: Radio, to: publicSlug ? `/live/${publicSlug}/overlay` : "#", scope: "auction", external: true },
+      {
+        label: "Public View",
+        icon: Eye,
+        to: publicSlug ? `/live/${publicSlug}` : "#",
+        scope: "auction",
+        external: true, // NEW: opens in a new tab, no sidebar (page is standalone)
+      },
+      {
+        label: "YouTube Overlay",
+        icon: Radio,
+        to: publicSlug ? `/live/${publicSlug}/overlay` : "#",
+        scope: "auction",
+        external: true,
+      },
     ];
   }, [auctionId, organizationId, publicSlug]);
 }
@@ -115,6 +127,7 @@ export default function AdminLayout({
   currentPlayer,
   nextPlayer,
   youtubeUrl,
+  fullscreen = false, // NEW: skip sidebar/header/bottom-nav entirely
 }) {
   const navigate = useNavigate();
   const navItems = useNavItems({ auctionId, organizationId, publicSlug });
@@ -134,6 +147,17 @@ export default function AdminLayout({
     setMobileMenuOpen(false);
     setLiveOverlayOpen(true);
   };
+
+  // NEW: bare shell — no sidebar, no header, no bottom nav.
+  // Used for pages that open in their own tab (e.g. Live Control).
+  if (fullscreen) {
+    return (
+      <div className="font-body min-h-screen bg-[#f5f4f0] text-[#0f1d17] antialiased">
+        <GlobalType />
+        <main className="min-h-screen">{children}</main>
+      </div>
+    );
+  }
 
   return (
     <div className="font-body min-h-screen bg-[#f5f4f0] text-[#0f1d17] antialiased">

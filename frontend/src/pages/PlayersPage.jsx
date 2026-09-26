@@ -18,6 +18,40 @@ function money(v) {
   return Number(v || 0).toLocaleString("en-IN");
 }
 
+/* ---------------------------------------------------------------------- */
+/* Modal overlay wrapper — fixes the "opens at top of page" problem by     */
+/* rendering the form/history as a centered, fixed-position pop-up with    */
+/* its own scroll region, instead of an inline block in the page flow.     */
+/* ---------------------------------------------------------------------- */
+function ModalOverlay({ onClose, children }) {
+  useEffect(() => {
+    // Lock background scroll while a modal is open
+    const original = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = original; };
+  }, []);
+
+  useEffect(() => {
+    function onKeyDown(e) { if (e.key === "Escape") onClose(); }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 backdrop-blur-sm sm:items-center"
+      onClick={onClose}
+    >
+      <div
+        className="my-8 w-full max-w-3xl sm:my-0"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export default function PlayersPage() {
   const { auctionId } = useParams();
   const [auction, setAuction] = useState(null);
@@ -241,34 +275,41 @@ export default function PlayersPage() {
             </div>
           )}
 
-          {/* Form & Modal Overlays */}
+          {/* Modal Overlays — now pop up centered over the page instead of
+              being inserted inline into the page flow */}
           {showForm && (
-            <PlayerForm
-              title={editingPlayer ? "Edit Player" : "Add Player"}
-              form={form}
-              setForm={setForm}
-              onSubmit={savePlayer}
-              onClose={() => { setShowForm(false); setEditingPlayer(null); setForm(emptyPlayer); }}
-              onPhotoUpload={uploadPhoto}
-              uploadingPhoto={uploadingPhoto}
-            />
+            <ModalOverlay onClose={() => { setShowForm(false); setEditingPlayer(null); setForm(emptyPlayer); }}>
+              <PlayerForm
+                title={editingPlayer ? "Edit Player" : "Add Player"}
+                form={form}
+                setForm={setForm}
+                onSubmit={savePlayer}
+                onClose={() => { setShowForm(false); setEditingPlayer(null); setForm(emptyPlayer); }}
+                onPhotoUpload={uploadPhoto}
+                uploadingPhoto={uploadingPhoto}
+              />
+            </ModalOverlay>
           )}
           {correctionPlayer && (
-            <CorrectionModal
-              player={correctionPlayer}
-              teams={teams}
-              correction={correction}
-              setCorrection={setCorrection}
-              onSubmit={saveCorrection}
-              onClose={() => setCorrectionPlayer(null)}
-            />
+            <ModalOverlay onClose={() => setCorrectionPlayer(null)}>
+              <CorrectionModal
+                player={correctionPlayer}
+                teams={teams}
+                correction={correction}
+                setCorrection={setCorrection}
+                onSubmit={saveCorrection}
+                onClose={() => setCorrectionPlayer(null)}
+              />
+            </ModalOverlay>
           )}
           {historyPlayer && (
-            <HistoryModal
-              player={historyPlayer}
-              history={history}
-              onClose={() => setHistoryPlayer(null)}
-            />
+            <ModalOverlay onClose={() => setHistoryPlayer(null)}>
+              <HistoryModal
+                player={historyPlayer}
+                history={history}
+                onClose={() => setHistoryPlayer(null)}
+              />
+            </ModalOverlay>
           )}
 
           {/* Main Dashboard Grid */}
@@ -441,7 +482,7 @@ function InfoField({ label, value }) {
 function PlayerForm({ title, form, setForm, onSubmit, onClose, onPhotoUpload, uploadingPhoto }) {
   function set(key, value) { setForm({ ...form, [key]: value }); }
   return (
-    <form onSubmit={onSubmit} className="rounded-2xl border border-slate-200 bg-white p-6">
+    <form onSubmit={onSubmit} className="max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
       <div className="mb-6 flex items-center justify-between border-b border-slate-100 pb-4">
         <div>
           <h3 className="text-lg font-bold text-slate-900">{title}</h3>
@@ -503,7 +544,7 @@ function PlayerForm({ title, form, setForm, onSubmit, onClose, onPhotoUpload, up
 function CorrectionModal({ player, teams, correction, setCorrection, onSubmit, onClose }) {
   function set(key, value) { setCorrection({ ...correction, [key]: value }); }
   return (
-    <form onSubmit={onSubmit} className="rounded-2xl border border-slate-200 bg-white p-6">
+    <form onSubmit={onSubmit} className="max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
       <div className="mb-6 flex items-center justify-between border-b border-slate-100 pb-4">
         <div>
           <h3 className="text-lg font-bold text-pink-700">Correction: {player.player_name}</h3>
@@ -552,7 +593,7 @@ function CorrectionModal({ player, teams, correction, setCorrection, onSubmit, o
 
 function HistoryModal({ player, history, onClose }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6">
+    <div className="max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
       <div className="mb-6 flex items-center justify-between border-b border-slate-100 pb-4">
         <h3 className="text-lg font-bold text-slate-900">History: {player.player_name}</h3>
         <button type="button" onClick={onClose} className="rounded-lg border border-slate-200 p-2 text-slate-500 transition hover:border-slate-300 hover:bg-slate-50">

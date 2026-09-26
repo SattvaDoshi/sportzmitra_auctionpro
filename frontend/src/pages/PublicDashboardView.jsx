@@ -13,39 +13,19 @@ import {
   ChevronLeft,
   ChevronRight,
   Shield,
-  Coins,
   Gavel,
-  PieChart,
   UserCheck,
   UserMinus,
 } from "lucide-react";
 import api from "../api/api";
-import PlayerAvatar from "../components/ui/PlayerAvatar";
+import { getImageUrl } from "../utils/imageUrl";
+import TeamOverviewCard from "../components/TeamOverviewCard";
 import TeamLogo from "../components/ui/TeamLogo";
 import socket from "../utils/socket";
 
 function money(value) {
   return Number(value || 0).toLocaleString("en-IN");
 }
-
-// Alternating brand accents used across team cards (pink / lime), matching
-// the two-tone identity used throughout the rest of the dashboard.
-const ACCENTS = [
-  {
-    ring: "border-[#EC008C]/25",
-    text: "text-[#EC008C]",
-    bar: "bg-[#EC008C]",
-    barTrack: "bg-[#EC008C]/15",
-    badge: "bg-[#EC008C]",
-  },
-  {
-    ring: "border-[#8DC63F]/30",
-    text: "text-[#629221]",
-    bar: "bg-[#8DC63F]",
-    barTrack: "bg-[#8DC63F]/15",
-    badge: "bg-[#8DC63F]",
-  },
-];
 
 export default function PublicDashboardView() {
   const { publicSlug } = useParams();
@@ -65,6 +45,7 @@ export default function PublicDashboardView() {
 
   const auctionIdRef = useRef(null);
   const debounceRef = useRef(null);
+  const tabsRef = useRef(null);
 
   async function loadInitialSnapshot() {
     try {
@@ -189,6 +170,12 @@ export default function PublicDashboardView() {
     if (currentPage < totalPages) setCurrentPage((prev) => prev + 1);
   };
 
+  const scrollTabs = (dir) => {
+    const el = tabsRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir * 130, behavior: "smooth" });
+  };
+
   if (error) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 p-6 text-center font-sans">
@@ -211,6 +198,13 @@ export default function PublicDashboardView() {
   }
 
   const { auction, dashboardSummary = {} } = data;
+
+  const tabDefs = [
+    { key: "teams", label: "TEAMS OVERVIEW", Icon: Shield, count: null },
+    { key: "sold", label: "SOLD PLAYERS", Icon: UserCheck, count: data.soldPlayers?.length || 0 },
+    { key: "unsold", label: "UNSOLD PLAYERS", Icon: UserMinus, count: data.unsoldPlayers?.length || 0 },
+    { key: "pending", label: "PENDING POOL", Icon: Clock, count: data.pendingPlayers?.length || 0 },
+  ];
 
   return (
     <div
@@ -261,8 +255,8 @@ export default function PublicDashboardView() {
           </div>
         </header>
 
-        {/* Analytics Summary */}
-        <section className="mb-5 sm:mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {/* Analytics Summary — hidden on mobile, table-only view is kept clean there */}
+        <section className="hidden sm:grid mb-5 sm:mb-6 grid-cols-3 gap-3 lg:grid-cols-5">
           <StatCard
             label="PLAYERS SOLD"
             value={dashboardSummary.sold_players || 0}
@@ -298,7 +292,7 @@ export default function PublicDashboardView() {
             icon={<Trophy className="h-5 w-5 text-orange-500" />}
             badgeBg="bg-orange-50"
             borderColor="border-orange-200"
-            className="col-span-2 sm:col-span-1"
+            className="col-span-1"
           />
         </section>
 
@@ -306,30 +300,39 @@ export default function PublicDashboardView() {
         <section className="rounded-2xl border border-slate-200/80 bg-white p-3 sm:p-4 shadow-sm">
           {/* Navigation Bar & Controls */}
           <div className="mb-5 sm:mb-6 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-            {/* View Tabs */}
-            <div className="no-scrollbar -mx-1 flex items-center gap-1.5 overflow-x-auto px-1 w-full lg:w-auto">
-              {[
-                ["teams", "TEAMS OVERVIEW", Shield],
-                ["sold", "SOLD PLAYERS", UserCheck],
-                ["unsold", "UNSOLD PLAYERS", UserMinus],
-                ["pending", "PENDING POOL", Clock]
-              ].map(([tab, label, Icon]) => (
-                <button
-                  key={tab}
-                  onClick={() => {
-                    setActiveTab(tab);
-                    setCurrentPage(1);
-                  }}
-                  className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-3.5 sm:px-4 py-2.5 text-[11px] sm:text-xs font-black uppercase tracking-wider transition ${
-                    activeTab === tab
-                      ? "bg-[#EC008C] text-white shadow-md shadow-[#EC008C]/20"
-                      : "text-slate-500 hover:bg-slate-100"
-                  }`}
-                >
-                  <Icon size={16} />
-                  {label}
-                </button>
-              ))}
+            {/* View Tabs — 3 fit at a time on mobile; pink arrow scrolls to the rest */}
+            <div className="flex w-full items-center gap-1.5 lg:w-auto">
+              <div
+                ref={tabsRef}
+                className="no-scrollbar flex flex-1 items-center gap-1.5 overflow-x-auto scroll-smooth px-1 lg:flex-none"
+              >
+                {tabDefs.map(({ key, label, Icon, count }) => (
+                  <button
+                    key={key}
+                    onClick={() => {
+                      setActiveTab(key);
+                      setCurrentPage(1);
+                    }}
+                    className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl px-2.5 sm:px-4 py-2 sm:py-2.5 text-[10px] sm:text-xs font-black uppercase tracking-wider transition ${
+                      activeTab === key
+                        ? "bg-[#EC008C] text-white shadow-md shadow-[#EC008C]/20"
+                        : "text-slate-500 hover:bg-slate-100"
+                    }`}
+                  >
+                    <Icon size={14} className="shrink-0" />
+                    <span className="max-w-[58px] truncate sm:max-w-none">{label}</span>
+                    {count !== null && <span className="shrink-0">({count})</span>}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => scrollTabs(1)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#EC008C] text-white shadow-sm active:scale-95 lg:hidden"
+                aria-label="Show more tabs"
+              >
+                <ChevronRight size={16} />
+              </button>
             </div>
 
             {/* Controls (Category Selector, Search & Pagination Buttons) */}
@@ -446,145 +449,50 @@ function StatCard({ label, value, valueColor = "text-slate-900", icon, badgeBg, 
   );
 }
 
-/* Responsive grid view for Teams: 1 col mobile, 2 cols tablet, 3 on laptop, 4 on large desktop */
+/* Responsive grid view for Teams: 1 col mobile, 2 cols tablet, 3 on laptop, 4 on large desktop.
+   Card design lives in TeamOverviewCard.jsx so PublicLiveView renders the identical card. */
 function TeamsGrid({ rows = [], auction, soldPlayers = [], onViewTeam }) {
   if (!rows.length) return <Empty text="No teams found matching search criteria" />;
 
-  const squadLimit = auction?.players_per_team || auction?.max_players_per_team || 12;
-
   return (
     <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-      {rows.map((t, idx) => {
-        // Backend returns: id, team_name, owner_name, logo_url, total_purse, remaining_purse, used_amount
-        // plus max_bid_allowed (augmented by route handler)
-        const totalPurse = Number(t.total_purse || 0);
-        const spent = Number(t.used_amount || 0);
-        const balance = Number(t.remaining_purse ?? (totalPurse - spent));
-        const maxBid = Number(t.max_bid_allowed ?? t.max_bid ?? balance);
-        const ownerName = t.owner_name || "";
-        // squad_size: count from soldPlayers or use squad_size if server provides it
-        const squadSize = typeof t.squad_size === "number"
-          ? t.squad_size
-          : soldPlayers.filter((p) => String(p.sold_team_id) === String(t.id)).length;
-        const slotsLeft = Math.max(0, squadLimit - squadSize);
-        const usedPct = totalPurse > 0 ? Math.min(100, Math.round((spent / totalPurse) * 100)) : 0;
-        const accent = ACCENTS[idx % ACCENTS.length];
+      {rows.map((t, idx) => (
+        <TeamOverviewCard
+          key={t.id}
+          team={t}
+          auction={auction}
+          soldPlayers={soldPlayers}
+          accentIndex={idx}
+          onViewTeam={onViewTeam}
+        />
+      ))}
+    </div>
+  );
+}
 
-        return (
-          <div
-            key={t.id}
-            className={`group relative overflow-hidden rounded-2xl border ${accent.ring} bg-white p-4 shadow-sm transition hover:shadow-md`}
-          >
-            <button
-              onClick={() => onViewTeam(t)}
-              className="absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-slate-600 hover:bg-slate-200 hover:text-slate-900 shadow-sm"
-              title="View Sold Players"
-            >
-              <Users size={12} /> Players
-            </button>
+/* Square (not circular) avatar used across the mobile-friendly player tables & modal */
+function SquareAvatar({ name, photoUrl, size = "sm" }) {
+  const sizes = { xs: "h-8 w-8", sm: "h-10 w-10", md: "h-14 w-14" };
+  const cls = sizes[size] || sizes.sm;
+  const photo = getImageUrl(photoUrl);
+  const [failed, setFailed] = useState(false);
 
-            {/* Watermark icon */}
-            <Shield
-              size={110}
-              strokeWidth={1}
-              className={`pointer-events-none absolute -right-4 -top-2 opacity-[0.06] ${accent.text}`}
-            />
-
-            {/* Header: Logo, Name & Owner */}
-            <div className="relative flex items-center gap-3 border-b border-slate-100 pb-3">
-              <div
-                className={`flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 ${accent.ring} bg-slate-900 text-white font-black shadow-md`}
-              >
-                {t.logo_url ? (
-                  <TeamLogo team={t} size="sm" />
-                ) : (
-                  <Shield size={22} className={accent.text} />
-                )}
-              </div>
-              <div className="min-w-0">
-                <h3 className="truncate text-base font-black italic uppercase tracking-tight text-slate-900">
-                  {t.team_name || t.name}
-                </h3>
-                {ownerName && (
-                  <p className="truncate text-xs font-semibold text-slate-400">{ownerName}</p>
-                )}
-              </div>
-            </div>
-
-            {/* Financial Metrics Row */}
-            <div className="relative mt-3 grid grid-cols-3 gap-1.5 rounded-xl bg-slate-50 p-2 text-center border border-slate-100">
-              <div>
-                <span className="flex items-center justify-center gap-1 text-[9px] font-black uppercase text-slate-400">
-                  <Coins size={10} className="text-pink-500" /> PURSE
-                </span>
-                <span className="text-xs font-black text-slate-900">
-                  &#8377;{money(totalPurse)}
-                </span>
-              </div>
-
-              <div>
-                <span className="flex items-center justify-center gap-1 text-[9px] font-black uppercase text-slate-400">
-                  <Coins size={10} className="text-orange-500" /> SPENT
-                </span>
-                <span className="text-xs font-black text-slate-900">
-                  &#8377;{money(spent)}
-                </span>
-              </div>
-
-              <div>
-                <span className="flex items-center justify-center gap-1 text-[9px] font-black uppercase text-slate-400">
-                  <Wallet size={10} className="text-emerald-500" /> BALANCE
-                </span>
-                <span className="text-xs font-black text-emerald-600">
-                  &#8377;{money(balance)}
-                </span>
-              </div>
-            </div>
-
-            {/* Squad Metrics Row */}
-            <div className="relative mt-2 grid grid-cols-3 gap-1.5 rounded-xl bg-slate-50 p-2 text-center border border-slate-100">
-              <div>
-                <span className="flex items-center justify-center gap-1 text-[9px] font-black uppercase text-slate-400">
-                  <Gavel size={10} className="text-rose-500" /> MAX BID
-                </span>
-                <span className="text-xs font-black text-slate-900">
-                  &#8377;{money(maxBid)}
-                </span>
-              </div>
-
-              <div>
-                <span className="flex items-center justify-center gap-1 text-[9px] font-black uppercase text-slate-400">
-                  <Users size={10} className="text-purple-500" /> SQUAD
-                </span>
-                <span className="text-xs font-black text-slate-900">{squadSize}</span>
-              </div>
-
-              <div>
-                <span className="flex items-center justify-center gap-1 text-[9px] font-black uppercase text-slate-400">
-                  <Users size={10} className="text-blue-500" /> SLOTS LEFT
-                </span>
-                <span className="text-xs font-black text-blue-600">{slotsLeft}</span>
-              </div>
-            </div>
-
-            {/* Budget Utilization */}
-            <div className="relative mt-3">
-              <div className="mb-1 flex items-center justify-between">
-                <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                  Budget Utilization
-                </span>
-                <span className={`text-[10px] font-black ${accent.text}`}>{usedPct}% USED</span>
-              </div>
-              <div className={`h-1.5 w-full overflow-hidden rounded-full ${accent.barTrack}`}>
-                <div
-                  className={`h-full rounded-full ${accent.bar} transition-all`}
-                  style={{ width: `${usedPct}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        );
-      })}
+  if (photo && !failed) {
+    return (
+      <img
+        src={photo}
+        alt={name || "Player"}
+        draggable="false"
+        className={`${cls} shrink-0 rounded-md border border-slate-200 object-cover`}
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+  return (
+    <div
+      className={`${cls} flex shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-200 font-black text-slate-500`}
+    >
+      {String(name || "P").charAt(0).toUpperCase()}
     </div>
   );
 }
@@ -594,32 +502,36 @@ function PlayerTable({ rows = [], type }) {
 
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-200">
-      <table className="w-full min-w-[640px] text-left text-xs">
+      <table className="w-full min-w-[560px] text-left text-[11px] sm:text-xs">
         <thead className="border-b border-slate-200 bg-slate-50 font-black uppercase tracking-wider text-slate-500">
           <tr>
-            <th className="p-3.5">Player</th>
-            <th className="p-3.5">Category</th>
-            <th className="p-3.5">Role</th>
-            <th className="p-3.5">{type === "sold" ? "Acquired By" : "Base Price"}</th>
-            <th className="p-3.5">{type === "sold" ? "Final Price" : "Unsold Attempts"}</th>
+            <th className="p-2.5 sm:p-3.5">Player</th>
+            <th className="p-2.5 sm:p-3.5">Category</th>
+            <th className="p-2.5 sm:p-3.5">{type === "sold" ? "Acquired By" : "Base Price"}</th>
+            <th className="p-2.5 sm:p-3.5">{type === "sold" ? "Final Price" : "Unsold Attempts"}</th>
+            <th className="p-2.5 sm:p-3.5">Role</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100 bg-white font-medium text-slate-700">
           {rows.map((p) => (
             <tr key={p.id} className="transition-colors hover:bg-slate-50">
-              <td className="p-3.5">
-                <div className="flex items-center gap-3">
-                  <PlayerAvatar name={p.player_name} photoUrl={p.photo_url} size="xs" />
-                  <span className="font-bold text-slate-900">{p.player_name}</span>
+              <td className="p-2.5 sm:p-3.5">
+                <div className="flex min-w-0 max-w-[130px] items-center gap-2 sm:max-w-none sm:gap-3">
+                  <SquareAvatar name={p.player_name} photoUrl={p.photo_url} size="xs" />
+                  <span className="truncate font-bold text-slate-900">{p.player_name}</span>
                 </div>
               </td>
-              <td className="p-3.5 text-slate-500">{p.category || "-"}</td>
-              <td className="p-3.5 text-slate-500">{p.player_role || "-"}</td>
-              <td className="p-3.5 font-bold text-slate-800">
+              <td className="max-w-[80px] truncate p-2.5 text-slate-500 sm:max-w-none sm:p-3.5">
+                {p.category || "-"}
+              </td>
+              <td className="max-w-[100px] truncate p-2.5 font-bold text-slate-800 sm:max-w-none sm:p-3.5">
                 {type === "sold" ? p.sold_team_name || "-" : `\u20B9${money(p.base_price)}`}
               </td>
-              <td className="p-3.5 font-black text-[#629221]">
+              <td className="p-2.5 font-black text-[#629221] sm:p-3.5">
                 {type === "sold" ? `\u20B9${money(p.sold_price)}` : p.unsold_count || 0}
+              </td>
+              <td className="max-w-[90px] truncate p-2.5 text-slate-500 sm:max-w-none sm:p-3.5">
+                {p.player_role || "-"}
               </td>
             </tr>
           ))}
@@ -716,7 +628,7 @@ function TeamPlayersModal({ team, players, onClose }) {
                   className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-[#8DC63F]"
                 >
                   <div className="flex items-center gap-3">
-                    <PlayerAvatar name={p.player_name} photoUrl={p.photo_url} size="sm" />
+                    <SquareAvatar name={p.player_name} photoUrl={p.photo_url} size="sm" />
                     <div>
                       <div className="font-bold text-slate-900">{p.player_name}</div>
                       <div className="mt-0.5 flex items-center gap-2 text-[10px] font-semibold uppercase text-slate-500">

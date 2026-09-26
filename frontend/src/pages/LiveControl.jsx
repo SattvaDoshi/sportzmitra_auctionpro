@@ -542,6 +542,7 @@ export default function LiveControl() {
       auctionId={auctionId}
       organizationId={auction?.organization_id}
       publicSlug={auction?.public_slug}
+       fullscreen
     >
       <CelebrationOverlay celebration={celebration} />
 
