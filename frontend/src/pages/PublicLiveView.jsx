@@ -4,7 +4,7 @@ import api from "../api/api";
 import { getImageUrl } from "../utils/imageUrl";
 import socket from "../utils/socket";
 import TeamOverviewCard from "../components/TeamOverviewCard";
-import { Gavel, Users, Zap, ChevronRight, ChevronLeft } from "lucide-react";
+import { Gavel, Users, ChevronRight, ChevronLeft, X } from "lucide-react";
 
 /**
  * PublicLiveView.jsx
@@ -64,7 +64,7 @@ function PlayerPhoto({ url, name, className }) {
 /* Full-width, responsive carousel of the exact same team card used on the
    public dashboard. Works down to mobile via native horizontal scroll-snap;
    arrows + dot pagination are layered on top for laptop/tablet/desktop. */
-function TeamsOverviewCarousel({ teams, auction, soldPlayers, publicSlug }) {
+function TeamsOverviewCarousel({ teams, auction, soldPlayers, publicSlug, onViewTeam }) {
   const scrollRef = useRef(null);
   const [page, setPage] = useState(0);
   const [pageCount, setPageCount] = useState(1);
@@ -157,6 +157,7 @@ function TeamsOverviewCarousel({ teams, auction, soldPlayers, publicSlug }) {
                   soldPlayers={soldPlayers}
                   accentIndex={idx}
                   variant="tinted"
+                  onViewTeam={onViewTeam}
                 />
               </div>
             ))}
@@ -190,6 +191,7 @@ export default function PublicLiveView() {
   const [snapshot, setSnapshot] = useState(null);
   const [loading, setLoading] = useState(true);
   const [celebration, setCelebration] = useState(null);
+  const [viewingTeam, setViewingTeam] = useState(null);
 
   const currentPlayer = useMemo(() => {
     if (!state) return null;
@@ -306,6 +308,14 @@ export default function PublicLiveView() {
 
       <CelebrationOverlay celebration={celebration} />
 
+      {viewingTeam && (
+        <TeamPlayersModal
+          team={viewingTeam}
+          players={soldPlayers.filter((p) => String(p.sold_team_id) === String(viewingTeam.id))}
+          onClose={() => setViewingTeam(null)}
+        />
+      )}
+
       {/* Backdrop wash */}
       <div className="pointer-events-none absolute -left-32 -top-32 h-[520px] w-[520px] rounded-full bg-[#E5007D]/15 blur-3xl" />
       <div className="pointer-events-none absolute -right-40 top-10 h-[600px] w-[600px] rounded-full bg-[#8CC63F]/15 blur-3xl" />
@@ -313,101 +323,79 @@ export default function PublicLiveView() {
 
       <div className="relative mx-auto flex w-full max-w-[1600px] flex-1 flex-col px-4 py-5 md:px-8 md:py-7">
         {/* ---------------- HEADER ---------------- */}
-        <header className="mb-6 flex flex-col gap-3 lg:flex-row lg:flex-nowrap lg:items-center lg:justify-between lg:gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 lg:contents">
-            {/* LEFT: Logo / wordmark */}
-            <div className="flex min-w-0 shrink-0 items-center gap-3">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#E5007D]/15">
-                <Gavel className="h-6 w-6 -rotate-45 text-[#E5007D]" />
-              </div>
-              <div className="min-w-0">
-                <div className="aa-display truncate text-3xl uppercase leading-none tracking-tight sm:text-4xl">
-                  <span className="text-[#E5007D]">Auction</span> <span className="text-white">Arena</span>
-                </div>
-                <div className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-[0.2em] text-white/40 sm:text-[11px]">
-                  Players &middot; Passion &middot; Bigger Dreams
-                </div>
-              </div>
+        <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          {/* LEFT: Logo / wordmark + season label */}
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#E5007D]/15">
+              <Gavel className="h-6 w-6 -rotate-45 text-[#E5007D]" />
             </div>
-
-            {/* RIGHT: Season title + ribbon */}
-            <div className="order-3 flex shrink-0 items-center gap-4 lg:order-3">
-              <div className="min-w-0 max-w-[200px] text-right sm:max-w-[280px]">
-                <div className="aa-display truncate text-lg uppercase leading-none tracking-tight text-white sm:text-xl">
-                  {seasonLabel}
-                </div>
-                <div className="truncate text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">
-                  Auction Arena
-                </div>
+            <div className="min-w-0">
+              <div className="aa-display truncate text-3xl uppercase leading-none tracking-tight sm:text-4xl">
+                <span className="text-[#E5007D]">Auction</span> <span className="text-white">Arena</span>
               </div>
-              <div className="hidden shrink-0 -rotate-6 rounded-lg bg-[#E5007D] px-3 py-1.5 text-right text-[10px] font-black italic uppercase leading-tight text-white shadow-md lg:block">
-                Cricket
-                <br />
-                Builds
-                <br />
-                Bridges
+              <div className="mt-1.5 flex items-center gap-2">
+                <span className="truncate text-[11px] font-bold uppercase tracking-[0.25em] text-white/60 sm:text-xs">
+                  {seasonLabel}
+                </span>
+                <span className="h-px w-8 shrink-0 bg-white/20" />
               </div>
             </div>
           </div>
 
-          {/* MIDDLE: Status Badges — restyled as dark glass pills to sit on the stadium background */}
-          <div className="order-2 flex flex-wrap items-center justify-center gap-2 lg:order-2 lg:flex-1 lg:justify-center">
-            <a
-              href={`/live/${publicSlug}/dashboard`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-white/80 shadow-sm backdrop-blur-md transition-colors hover:border-[#E5007D] hover:text-[#E5007D]"
-            >
-              Public Dashboard
-            </a>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-white/80 shadow-sm backdrop-blur-md">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+          {/* RIGHT: tagline + secondary status pills */}
+          <div className="flex flex-col items-start gap-2 sm:items-end">
+            <div className="text-[11px] font-bold uppercase tracking-[0.3em] text-white/50 sm:text-xs">
+              Players &middot; Passion &middot; Bigger Dreams
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <a
+                href={`/live/${publicSlug}/dashboard`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-white/60 backdrop-blur-md transition-colors hover:border-[#E5007D] hover:text-[#E5007D]"
+              >
+                Public Dashboard
+              </a>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-white/60 backdrop-blur-md">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
+                </span>
+                Live View
               </span>
-              Live View
-            </span>
-            <span className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-white/40 shadow-sm backdrop-blur-md">
-              Auction ID <strong className="ml-1 text-white/80">#{auction?.auction_code || publicSlug}</strong>
-            </span>
+              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-white/40 backdrop-blur-md">
+                #{auction?.auction_code || publicSlug}
+              </span>
+            </div>
           </div>
         </header>
 
         {/* ---------------- PLAYER HERO CARD ---------------- */}
         <div className="min-w-0 flex-1">
-          <section className="relative flex min-w-0 flex-col overflow-hidden rounded-3xl border border-white/15 bg-slate-950/65 shadow-2xl backdrop-blur-xl">
+          <section className="relative flex min-w-0 flex-col overflow-hidden rounded-3xl">
             <div className="flex flex-1 flex-col sm:flex-row">
               {/* Photo side */}
-              <div className="relative h-[260px] w-full shrink-0 overflow-hidden bg-gradient-to-br from-[#E5007D]/15 to-[#8CC63F]/10 sm:h-auto sm:w-[46%]">
-                <div className="pointer-events-none absolute -left-2 top-6 max-w-[90%] select-none text-[15vw] font-black uppercase leading-[0.85] tracking-tighter text-[#E5007D]/10 sm:text-[3.6vw]">
-                  {currentPlayer?.player_name || "Waiting"}
-                </div>
-                <div className="absolute inset-0 flex items-end p-3">
+              <div className="relative h-[320px] w-full shrink-0 overflow-hidden sm:h-auto sm:w-[46%]">
+                <div className="absolute inset-0 flex items-end">
                   <PlayerPhoto
                     url={currentPlayer?.photo_url}
                     name={currentPlayer?.player_name}
                     className="h-full w-full object-cover object-top"
                   />
                 </div>
-                {/* Bottom fade so the photo melts into the info panel instead of ending in a hard edge */}
-                <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-950/70 via-transparent to-transparent" />
               </div>
 
               {/* Info side */}
               <div className="relative flex min-w-0 flex-1 flex-col justify-center p-5 sm:p-7">
-                <div className="flex items-start justify-between gap-3">
-                  <span className="inline-flex items-center rounded-full bg-[#E5007D] px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white">
-                    Current Player
-                  </span>
-                  {currentPlayer?.jersey_number ? (
-                    <div className="aa-display select-none text-[clamp(44px,7vw,80px)] leading-none text-[#E5007D]/20">
-                      #{currentPlayer.jersey_number}
-                    </div>
-                  ) : null}
-                </div>
+                <span className="inline-flex w-fit items-center rounded-full bg-[#E5007D] px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white">
+                  Current Player
+                </span>
 
                 <h1 className="aa-display mt-4 break-words text-[clamp(48px,7.5vw,96px)] uppercase leading-[0.82] tracking-tight text-white [text-shadow:0_4px_24px_rgba(0,0,0,0.35)]">
                   {currentPlayer?.player_name || "Waiting for player..."}
+                  {currentPlayer?.jersey_number ? (
+                    <span className="text-[0.6em] text-[#E5007D]">{currentPlayer.jersey_number}</span>
+                  ) : null}
                 </h1>
 
                 <div className="mt-3 flex flex-wrap items-center gap-2.5">
@@ -428,27 +416,25 @@ export default function PublicLiveView() {
                   )}
                 </div>
 
-                {/* Current Bid Display Box with Hammer & Bid (Zap) Icons */}
-                <div className="mt-6 rounded-2xl border border-[#E5007D]/30 bg-[#E5007D]/10 p-4 shadow-lg backdrop-blur-md sm:p-5">
+                {/* Current Bid box — single panel, Base Price / Max Bid split by a divider */}
+                <div className="mt-6 rounded-2xl border border-[#E5007D]/40 bg-[#E5007D]/10 p-4 shadow-lg backdrop-blur-md sm:p-5">
                   <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white/70">
                     <Gavel className="h-4 w-4 -rotate-45 text-[#E5007D]" />
-                    <Zap className="h-4 w-4 text-[#E5007D]" />
                     <span>Current Bid</span>
                   </div>
                   <div className="aa-display mt-1 text-[clamp(56px,8.5vw,110px)] leading-none text-[#E5007D]">
                     ₹{formatAmount(currentBid)}
                   </div>
-                </div>
 
-                {/* Base Price and Max Bid (Min Bid removed) */}
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-white/45">Base Price</div>
-                    <div className="aa-display mt-1 truncate text-2xl text-white sm:text-3xl">₹{formatAmount(basePrice)}</div>
-                  </div>
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-white/45">Max Bid</div>
-                    <div className="aa-display mt-1 truncate text-2xl text-white sm:text-3xl">₹{formatAmount(maxBid)}</div>
+                  <div className="mt-4 grid grid-cols-2 divide-x divide-white/15 border-t border-white/15 pt-3">
+                    <div className="pr-4">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-white/45">Base Price</div>
+                      <div className="aa-display mt-1 truncate text-2xl text-white sm:text-3xl">₹{formatAmount(basePrice)}</div>
+                    </div>
+                    <div className="pl-4">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-white/45">Max Bid</div>
+                      <div className="aa-display mt-1 truncate text-2xl text-white sm:text-3xl">₹{formatAmount(maxBid)}</div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -457,7 +443,13 @@ export default function PublicLiveView() {
         </div>
 
         {/* ---------------- TEAMS OVERVIEW (same card layout as the public dashboard) ---------------- */}
-        <TeamsOverviewCarousel teams={teams} auction={auction} soldPlayers={soldPlayers} publicSlug={publicSlug} />
+        <TeamsOverviewCarousel
+          teams={teams}
+          auction={auction}
+          soldPlayers={soldPlayers}
+          publicSlug={publicSlug}
+          onViewTeam={setViewingTeam}
+        />
 
         {/* ---------------- FOOTER ---------------- */}
         <footer className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-6 text-[10px] font-bold uppercase tracking-widest text-white/40">
@@ -469,6 +461,96 @@ export default function PublicLiveView() {
             More Than A Game
           </div>
         </footer>
+      </div>
+    </div>
+  );
+}
+
+/* Small square avatar for the squad list inside TeamPlayersModal — same
+   fallback-initial behavior as PlayerPhoto, sized for a compact row. */
+function SquadAvatar({ name, photoUrl }) {
+  const photo = getImageUrl(photoUrl);
+  const [failed, setFailed] = useState(false);
+
+  if (photo && !failed) {
+    return (
+      <img
+        src={photo}
+        alt={name || "Player"}
+        draggable="false"
+        className="h-11 w-11 shrink-0 rounded-lg border border-white/10 object-cover"
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+  return (
+    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5 font-black text-[#E5007D]">
+      {String(name || "P").charAt(0).toUpperCase()}
+    </div>
+  );
+}
+
+/* Squad roster for a single team, opened from the "View Squad" button on
+   TeamOverviewCard — dark-themed to match the rest of the live view. */
+function TeamPlayersModal({ team, players, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-md">
+      <div className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-white/15 bg-slate-950/95 shadow-2xl">
+        <div className="flex items-center justify-between border-b border-white/10 p-4 sm:p-5">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#E5007D]/30 bg-[#E5007D]/10">
+              <Users className="h-5 w-5 text-[#E5007D]" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="aa-display truncate text-xl uppercase tracking-tight text-white">
+                {team.team_name || team.name}
+              </h3>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">
+                {players.length} Player{players.length === 1 ? "" : "s"} Acquired
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/50 transition hover:bg-white/10 hover:text-white"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+          {players.length === 0 ? (
+            <div className="py-10 text-center text-xs font-bold uppercase tracking-wide text-white/40">
+              No players acquired by this team yet.
+            </div>
+          ) : (
+            <div className="grid gap-2.5">
+              {players.map((p) => (
+                <div
+                  key={p.id}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 p-3"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <SquadAvatar name={p.player_name} photoUrl={p.photo_url} />
+                    <div className="min-w-0">
+                      <div className="truncate font-bold text-white">{p.player_name}</div>
+                      <div className="mt-0.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-white/40">
+                        <span>{p.category || "N/A"}</span>
+                        <span className="h-1 w-1 rounded-full bg-white/20" />
+                        <span>{p.player_role || "N/A"}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="text-[9px] font-black uppercase tracking-widest text-white/35">Sold For</div>
+                    <div className="aa-display text-lg text-[#8CC63F]">&#8377;{formatAmount(p.sold_price)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

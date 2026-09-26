@@ -150,7 +150,7 @@ export default function SuperAdminDashboard() {
       subtitle="Manage organizations and assign auction admins"
       active="Overview"
     >
-      <div className="min-h-screen bg-slate-50 p-4 sm:p-6 lg:p-8 font-sans text-slate-800">
+      <div className="min-h-screen overflow-x-hidden bg-slate-50 p-4 sm:p-6 lg:p-8 font-sans text-slate-800">
         <div className="mx-auto max-w-7xl space-y-6">
           
           {/* Metric Cards Grid */}
@@ -170,7 +170,10 @@ export default function SuperAdminDashboard() {
 
           {/* Organizations List */}
           <div className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
-            <div className="flex items-center justify-between border-b border-slate-100 p-5 sm:p-6">
+            {/* Header row: stacks on mobile so the "New Organization" button
+                gets its own full-width line instead of forcing this row (and
+                the whole page) wider than the viewport. */}
+            <div className="flex flex-col gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
               <div className="flex items-center gap-2">
                 <Building2 className="h-5 w-5 text-blue-600" />
                 <h2 className="text-lg font-black uppercase tracking-tight text-slate-900 sm:text-xl">
@@ -186,22 +189,25 @@ export default function SuperAdminDashboard() {
                   });
                   setShowOrgModal(true);
                 }}
-                className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+                className="flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-blue-700 sm:w-auto sm:justify-start sm:py-2"
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="h-4 w-4 shrink-0" />
                 New Organization
               </button>
             </div>
 
+            {/* Table scrolls horizontally within its own box on mobile
+                instead of the columns being squeezed or pushing the page
+                width out. */}
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm text-slate-600">
                 <thead className="bg-slate-50/50 text-xs uppercase tracking-wider text-slate-500">
                   <tr>
-                    <th className="px-6 py-4 font-bold">Organization</th>
-                    <th className="px-6 py-4 font-bold">Contact</th>
-                    <th className="px-6 py-4 font-bold">Plan</th>
-                    <th className="px-6 py-4 font-bold">Status</th>
-                    <th className="px-6 py-4 font-bold text-right">Actions</th>
+                    <th className="whitespace-nowrap px-6 py-4 font-bold">Organization</th>
+                    <th className="whitespace-nowrap px-6 py-4 font-bold">Contact</th>
+                    <th className="whitespace-nowrap px-6 py-4 font-bold">Plan</th>
+                    <th className="whitespace-nowrap px-6 py-4 font-bold">Status</th>
+                    <th className="whitespace-nowrap px-6 py-4 font-bold text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -216,20 +222,20 @@ export default function SuperAdminDashboard() {
                   ) : (
                     organizations.map((org) => (
                       <tr key={org.id} className="transition-colors hover:bg-slate-50/50">
-                        <td className="px-6 py-4">
+                        <td className="whitespace-nowrap px-6 py-4">
                           <div className="font-bold text-slate-900">{org.organization_name}</div>
                           <div className="text-xs text-slate-500">ID: {org.id}</div>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="whitespace-nowrap px-6 py-4">
                           <div className="font-medium text-slate-900">{org.contact_person || 'N/A'}</div>
                           <div className="text-xs text-slate-500">{org.contact_mobile || 'N/A'}</div>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="whitespace-nowrap px-6 py-4">
                           <span className="inline-flex rounded-md bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">
                             {org.plan_type}
                           </span>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="whitespace-nowrap px-6 py-4">
                           {org.status === 'ACTIVE' ? (
                             <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2.5 py-1 text-xs font-bold text-green-700 ring-1 ring-green-600/20 ring-inset">
                               <Check className="h-3 w-3" /> Active
@@ -240,7 +246,7 @@ export default function SuperAdminDashboard() {
                             </span>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="whitespace-nowrap px-6 py-4 text-right">
                           <div className="flex items-center justify-end gap-2">
                             <button 
                               onClick={() => navigate(`/admin/organizations/${org.id}/auctions`)}
@@ -285,7 +291,7 @@ export default function SuperAdminDashboard() {
       {/* Create/Edit Org Modal */}
       {showOrgModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="mb-6 flex items-center justify-between">
               <h3 className="text-lg font-black uppercase text-slate-900">
                 {editingOrg ? "Edit Organization" : "New Organization"}
@@ -307,7 +313,7 @@ export default function SuperAdminDashboard() {
                 />
               </div>
               
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-sm font-bold text-slate-700">Contact Person</label>
                   <input
@@ -328,7 +334,7 @@ export default function SuperAdminDashboard() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-sm font-bold text-slate-700">Plan Type</label>
                   <select
@@ -368,7 +374,7 @@ export default function SuperAdminDashboard() {
       {/* Manage Admins Modal */}
       {showAdminsModal && selectedOrg && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="mb-6 flex items-center justify-between">
               <h3 className="text-lg font-black uppercase text-slate-900">
                 Manage Admins: {selectedOrg.organization_name}
@@ -412,13 +418,13 @@ export default function SuperAdminDashboard() {
 
             <div>
               <h4 className="mb-4 text-sm font-bold uppercase text-slate-700">Current Admins</h4>
-              <div className="max-h-[300px] overflow-y-auto rounded-xl border border-slate-200">
+              <div className="max-h-[300px] overflow-y-auto overflow-x-auto rounded-xl border border-slate-200">
                 <table className="w-full text-left text-sm text-slate-600">
                   <thead className="sticky top-0 bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
                     <tr>
-                      <th className="px-4 py-3 font-bold">Name</th>
-                      <th className="px-4 py-3 font-bold">Mobile</th>
-                      <th className="px-4 py-3 font-bold text-right">Actions</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-bold">Name</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-bold">Mobile</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-bold text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -429,9 +435,9 @@ export default function SuperAdminDashboard() {
                     ) : (
                       admins.map((admin) => (
                         <tr key={admin.id} className="hover:bg-slate-50/50">
-                          <td className="px-4 py-3 font-medium text-slate-900">{admin.name}</td>
-                          <td className="px-4 py-3">{admin.mobile}</td>
-                          <td className="px-4 py-3 text-right">
+                          <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{admin.name}</td>
+                          <td className="whitespace-nowrap px-4 py-3">{admin.mobile}</td>
+                          <td className="whitespace-nowrap px-4 py-3 text-right">
                             <button
                               onClick={() => handleRemoveAdmin(admin.id)}
                               className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"

@@ -226,12 +226,15 @@ export default function PlayersPage() {
                 />
               </div>
 
-              <div className="flex flex-wrap gap-1">
+              {/* Status chips — a single horizontally-scrollable row on
+                  mobile (no wrapping onto uneven lines); reverts to a
+                  normal wrapping row once there's enough width from md up. */}
+              <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:flex-wrap md:overflow-visible md:px-0 md:pb-0">
                 {["ALL", "AVAILABLE", "SOLD", "UNSOLD", "FINAL_UNSOLD", "WITHDRAWN"].map((st) => (
                   <button
                     key={st}
                     onClick={() => setStatus(st)}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
                       status === st
                         ? "bg-slate-900 text-white"
                         : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
@@ -243,21 +246,30 @@ export default function PlayersPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            {/* Quick actions — equal 3-column grid on mobile so labels stay
+                on one line and all three buttons match height; reverts to
+                the original inline row from sm: up. */}
+            <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center">
               <button
                 onClick={openAdd}
-                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-emerald-600 px-2.5 py-2.5 text-[11px] font-semibold text-white transition hover:bg-emerald-700 sm:gap-2 sm:px-4 sm:text-sm"
               >
-                <Plus size={16} /> Add Player
+                <Plus size={15} className="shrink-0 sm:hidden" />
+                <Plus size={16} className="hidden shrink-0 sm:block" />
+                Add Player
               </button>
               <button
                 onClick={downloadTemplate}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-2.5 py-2.5 text-[11px] font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:gap-2 sm:px-4 sm:text-sm"
               >
-                <Download size={16} /> Template
+                <Download size={15} className="shrink-0 sm:hidden" />
+                <Download size={16} className="hidden shrink-0 sm:block" />
+                Template
               </button>
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-pink-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-pink-700">
-                <Upload size={16} /> Upload Excel
+              <label className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-pink-600 px-2.5 py-2.5 text-[11px] font-semibold text-white transition hover:bg-pink-700 sm:gap-2 sm:px-4 sm:text-sm">
+                <Upload size={15} className="shrink-0 sm:hidden" />
+                <Upload size={16} className="hidden shrink-0 sm:block" />
+                Upload Excel
                 <input type="file" accept=".xlsx,.xls" className="hidden" onChange={uploadPlayers} />
               </label>
             </div>

@@ -70,8 +70,30 @@ export default function Login() {
     fetchAuctions();
   }, []);
 
+  // Pulls whichever date field the record actually has — different auction
+  // payloads have used auction_date / start_date / scheduled_date at
+  // different times, so this checks all three instead of assuming one.
+  function getAuctionDate(item) {
+    const raw = item.auction_date || item.start_date || item.scheduled_date || item.event_date;
+    return raw ? new Date(raw) : null;
+  }
+
   const ongoingAuctions = auctions.filter(a => ['LIVE', 'PAUSED'].includes(a.status));
-  const upcomingAuctions = auctions.filter(a => !['LIVE', 'PAUSED', 'COMPLETED'].includes(a.status));
+
+  // Upcoming: only the 3 soonest by date. Undated auctions are pushed to
+  // the end (rather than dropped) so nothing silently disappears.
+  const upcomingAuctions = auctions
+    .filter(a => !['LIVE', 'PAUSED', 'COMPLETED'].includes(a.status))
+    .slice()
+    .sort((a, b) => {
+      const dateA = getAuctionDate(a);
+      const dateB = getAuctionDate(b);
+      if (!dateA && !dateB) return 0;
+      if (!dateA) return 1;
+      if (!dateB) return -1;
+      return dateA - dateB;
+    })
+    .slice(0, 3);
 
   const activeAuctions =
     auctionTab === "ONGOING" ? ongoingAuctions : upcomingAuctions;

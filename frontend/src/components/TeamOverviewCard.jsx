@@ -1,5 +1,5 @@
-import { Shield, Users, Coins, Wallet, Gavel } from "lucide-react";
-import TeamLogo from "./ui/TeamLogo";
+import { Shield, Users, Coins, Wallet, Gavel, Eye } from "lucide-react";
+import TeamLogo from "../components/ui/TeamLogo";
 
 /**
  * TeamOverviewCard.jsx
@@ -88,8 +88,8 @@ export default function TeamOverviewCard({
     ? {
         card: `border ${accent.ring} ${accent.tint || "bg-white"} shadow-sm hover:shadow-md`,
         headerBorder: "border-black/5",
-        name: "text-slate-900",
-        owner: "text-slate-500",
+        name: "text-white",
+        owner: "text-white/60",
         statBox: "bg-white/70 border-white/60",
         statLabel: "text-slate-500",
         statValue: "text-slate-900",
@@ -97,7 +97,7 @@ export default function TeamOverviewCard({
         slotsValue: "text-blue-600",
         trackBase: "bg-white/60",
         watermark: "opacity-[0.08]",
-        viewBtn: "bg-white/80 text-slate-600 hover:bg-white hover:text-slate-900",
+        viewBtn: "bg-white/90 text-slate-700 hover:bg-white hover:text-slate-900 border border-black/5",
         logoRing: `border-2 ${accent.ring} bg-white`,
       }
     : {
@@ -112,22 +112,12 @@ export default function TeamOverviewCard({
         slotsValue: "text-blue-600",
         trackBase: accent.barTrack || "bg-slate-100",
         watermark: "opacity-[0.06]",
-        viewBtn: "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900",
+        viewBtn: "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 border border-transparent",
         logoRing: `border-2 ${accent.ring} bg-slate-900`,
       };
 
   return (
     <div className={`group relative overflow-hidden rounded-2xl p-4 transition ${theme.card} ${className}`}>
-      {onViewTeam && (
-        <button
-          onClick={() => onViewTeam(team)}
-          className={`absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-wider shadow-sm ${theme.viewBtn}`}
-          title="View Sold Players"
-        >
-          <Users size={12} /> Players
-        </button>
-      )}
-
       {/* Watermark icon */}
       <Shield
         size={110}
@@ -135,23 +125,38 @@ export default function TeamOverviewCard({
         className={`pointer-events-none absolute -right-4 -top-2 ${theme.watermark} ${accent.text}`}
       />
 
-      {/* Header: Logo, Name & Owner */}
-      <div className={`relative flex items-center gap-3 border-b pb-3 ${theme.headerBorder}`}>
-        <div
-          className={`flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full text-white font-black shadow-md ${theme.logoRing}`}
-        >
-          {team.logo_url ? (
-            <TeamLogo team={team} size="sm" />
-          ) : (
-            <Shield size={22} className={isTinted ? accent.text : accent.text} />
-          )}
+      {/* Header: Logo, Name & Owner — full name, no truncation (wraps if
+          long). The "View Squad" button gets its own row below so it never
+          competes with the name for width. */}
+      <div className={`relative border-b pb-3 ${theme.headerBorder}`}>
+        <div className="flex items-center gap-3">
+          <div
+            className={`flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full text-white font-black shadow-md ${theme.logoRing}`}
+          >
+            {team.logo_url ? (
+              <TeamLogo team={team} size="sm" />
+            ) : (
+              <Shield size={22} className={accent.text} />
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className={`break-words text-base font-black italic uppercase leading-tight tracking-tight ${theme.name}`}>
+              {team.team_name || team.name}
+            </h3>
+            {ownerName && <p className={`truncate text-xs font-semibold ${theme.owner}`}>{ownerName}</p>}
+          </div>
         </div>
-        <div className="min-w-0">
-          <h3 className={`truncate text-base font-black italic uppercase tracking-tight text-white`}>
-            {team.team_name || team.name}
-          </h3>
-          {ownerName && <p className={`truncate text-xs font-semibold ${theme.owner}`}>{ownerName}</p>}
-        </div>
+
+        {onViewTeam && (
+          <button
+            onClick={() => onViewTeam(team)}
+            className={`mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-[10px] font-black uppercase tracking-wider shadow-sm transition hover:scale-[1.02] active:scale-95 ${theme.viewBtn}`}
+            title={`View ${team.team_name || team.name || "team"}'s squad`}
+          >
+            <Eye size={12} />
+            <span>View Squad</span>
+          </button>
+        )}
       </div>
 
       {/* Financial Metrics Row */}
