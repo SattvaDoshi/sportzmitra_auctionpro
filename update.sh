@@ -44,7 +44,7 @@ success "Backend dependencies up to date."
 
 # Run migrations in case schema changed
 info "Running database migrations..."
-node src/migrations/run.js 2>/dev/null && success "Migrations complete." \
+npm run migrate 2>/dev/null && success "Migrations complete." \
   || warn "Migration runner not found or no new migrations — skipping."
 
 # =============================================================================
