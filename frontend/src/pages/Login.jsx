@@ -102,7 +102,8 @@ export default function Login() {
   // Upcoming -> open the AuctionList page
   function handleAuctionCardClick(item) {
     if (auctionTab === "ONGOING") {
-      navigate(`/live/${item.id}`);
+      const slug = item.public_slug || item.auction_code || item.id;
+      navigate(`/live/${slug}`);
     } else {
       navigate("/auctions");
     }

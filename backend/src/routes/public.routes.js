@@ -19,9 +19,11 @@ async function resolveAuctionId(publicSlug) {
   const cached = cache.get(slugKey);
   if (cached !== undefined) return cached;
 
+  const isNumeric = /^\d+$/.test(publicSlug);
+
   const [[auctionRef]] = await pool.query(
-    `SELECT id FROM auctions WHERE public_slug = ? OR auction_code = ? LIMIT 1`,
-    [publicSlug, publicSlug]
+    `SELECT id FROM auctions WHERE public_slug = ? OR auction_code = ? ${isNumeric ? 'OR id = ?' : ''} LIMIT 1`,
+    isNumeric ? [publicSlug, publicSlug, publicSlug] : [publicSlug, publicSlug]
   );
   const id = auctionRef?.id ?? null;
   cache.set(slugKey, id, 30_000); // 30-second TTL for slug → id mapping
