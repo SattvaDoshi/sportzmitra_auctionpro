@@ -3,6 +3,8 @@ import { useMemo, useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import AdminLayout from "../components/layout/AdminLayout";
 import api from "../api/api";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 import {
   Users,
@@ -582,7 +584,41 @@ function AuctionSummaryTab({
    Team Performance
    --------------------------------------------------------- */
 
-function TeamPerformanceTab({ sold }) {
+function TeamPerformanceTab({ sold, teamsData = [], globalPurse = 0 }) {
+  const [viewTeam, setViewTeam] = useState(null);
+
+  const downloadTeamPdf = async (team) => {
+    try {
+      const doc = new jsPDF();
+      
+      doc.setFontSize(16);
+      doc.text(`Team: ${team.name}`, 14, 20);
+      doc.setFontSize(11);
+      doc.text(`Total Players: ${team.players.length}`, 14, 28);
+      doc.text(`Total Spend: Rs. ${formatAmount(team.spend)}`, 14, 34);
+      
+      const tableData = team.players.map(p => [
+        p.player_name, 
+        p.category || '-', 
+        p.player_role || '-', 
+        formatAmount(p.sold_price)
+      ]);
+      
+      autoTable(doc, {
+        startY: 42,
+        head: [['Player Name', 'Category', 'Role', 'Price (Rs.)']],
+        body: tableData,
+        theme: 'striped',
+        headStyles: { fillColor: [184, 38, 91] }, // theme.rose
+      });
+      
+      doc.save(`${team.name.replace(/\s+/g, '_')}_players.pdf`);
+    } catch (error) {
+      console.error("PDF generation failed", error);
+      alert("Failed to generate PDF. Please ensure jspdf libraries are installed.");
+    }
+  };
+
   const teams = useMemo(() => {
     const map = new Map();
 
@@ -633,11 +669,10 @@ function TeamPerformanceTab({ sold }) {
     );
   }
 
-  const topSpend = teams[0].spend || 1;
-
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      {teams.map((team, teamIndex) => (
+    <>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {teams.map((team, teamIndex) => (
         <div
           key={team.name}
           className="rounded-2xl border border-[#EDE8E5] bg-white p-5 transition-all duration-200 hover:border-[#D4C9C4] hover:shadow-md"
@@ -678,33 +713,49 @@ function TeamPerformanceTab({ sold }) {
                 </p>
               </div>
             </div>
-          </div>
 
-          <div className="mt-4 space-y-1">
-            <div className="flex justify-between text-[11px] font-medium text-[#8A8078]">
-              <span>Spend</span>
-
-              <span>
-                {Math.round(
-                  (team.spend / topSpend) * 100
-                )}
-                % of top
-              </span>
-            </div>
-
-            <div className="h-2 w-full overflow-hidden rounded-full bg-[#F0E8E4]">
-              <div
-                className="h-full rounded-full transition-all duration-700"
-                style={{
-                  width: `${Math.max(
-                    (team.spend / topSpend) * 100,
-                    4
-                  )}%`,
-                  background: `linear-gradient(90deg, ${theme.rose}, #E05C8A)`,
-                }}
-              />
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                onClick={() => setViewTeam(team)}
+                className="rounded-lg bg-[#F8F4F2] px-2.5 py-1.5 text-[11px] font-bold text-[#8A8078] transition-colors hover:bg-[#E8DDD9] hover:text-[#1C1917]"
+              >
+                Open
+              </button>
+              <button
+                onClick={() => downloadTeamPdf(team)}
+                className="rounded-lg bg-[#F8F4F2] px-2.5 py-1.5 text-[11px] font-bold text-[#8A8078] transition-colors hover:bg-[#E8DDD9] hover:text-[#1C1917]"
+              >
+                Download
+              </button>
             </div>
           </div>
+
+          {(() => {
+            const matchedTeam = teamsData.find(t => t.team_name === team.name || t.name === team.name);
+            let totalPurse = matchedTeam ? Number(matchedTeam.total_purse) : 0;
+            if (totalPurse === 0) totalPurse = globalPurse;
+            const spendPct = totalPurse > 0 ? Math.min((team.spend / totalPurse) * 100, 100) : 0;
+            const remaining = Math.max(totalPurse - team.spend, 0);
+
+            return (
+              <div className="mt-4 space-y-1">
+                <div className="flex justify-between text-[11px] font-medium text-[#8A8078]">
+                  <span>Spend (₹{formatAmount(team.spend)})</span>
+                  <span>Remaining (₹{formatAmount(remaining)})</span>
+                </div>
+
+                <div className="h-2 w-full overflow-hidden rounded-full bg-[#F0E8E4]">
+                  <div
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{
+                      width: `${Math.max(spendPct, 2)}%`,
+                      background: `linear-gradient(90deg, ${theme.rose}, #E05C8A)`,
+                    }}
+                  />
+                </div>
+              </div>
+            );
+          })()}
 
           <div className="mt-4 flex flex-wrap gap-1.5">
             {team.players
@@ -733,7 +784,50 @@ function TeamPerformanceTab({ sold }) {
           </div>
         </div>
       ))}
-    </div>
+      </div>
+
+      {viewTeam && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 font-sans backdrop-blur-sm">
+          <div className="flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-[#F0E8E4] p-5">
+              <div>
+                <h3 className="text-lg font-bold text-[#1C1917]">{viewTeam.name}</h3>
+                <p className="text-[12px] font-medium text-[#8A8078]">
+                  {viewTeam.players.length} players • ₹{formatAmount(viewTeam.spend)}
+                </p>
+              </div>
+              <button
+                onClick={() => setViewTeam(null)}
+                className="rounded-full p-2 text-[#8A8078] transition hover:bg-[#F8F4F2] hover:text-[#1C1917]"
+              >
+                <UserX size={20} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto bg-[#F8F4F2]/50 p-4">
+              <div className="grid gap-3">
+                {viewTeam.players.map((p) => (
+                  <div key={p.id} className="flex items-center justify-between rounded-xl border border-[#EDE8E5] bg-white p-3 shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <PlayerAvatar player={p} size={32} />
+                      <div>
+                        <div className="text-[13px] font-bold text-[#1C1917]">{p.player_name}</div>
+                        <div className="text-[11px] font-medium text-[#8A8078]">
+                          {p.category || "N/A"} • {p.player_role || "N/A"}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[10px] font-bold uppercase text-[#8A8078]">Sold For</div>
+                      <div className="text-[13px] font-bold text-[#059669]">₹{formatAmount(p.sold_price)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1150,6 +1244,7 @@ export default function ReportsPage() {
   const [summary, setSummary] = useState({});
   const [loading, setLoading] = useState(true);
   const [auctionName, setAuctionName] = useState("Auction Report");
+  const [globalPurse, setGlobalPurse] = useState(0);
   const [activeTab, setActiveTab] = useState(TABS[0].key);
 
   useEffect(() => {
@@ -1163,6 +1258,7 @@ export default function ReportsPage() {
         setReportTeams(reportRes.data.teams || []);
         setSummary(reportRes.data.summary || {});
         setAuctionName(dashRes.data?.auction?.auction_name || "Auction Report");
+        setGlobalPurse(Number(dashRes.data?.auction?.total_purse_per_team || 0));
       } catch (err) {
         console.error("reports load error", err);
       } finally {
@@ -1331,7 +1427,7 @@ export default function ReportsPage() {
                   />
                 )}
                 {activeTab === "Team performance" && (
-                  <TeamPerformanceTab sold={enrichedSold} />
+                  <TeamPerformanceTab sold={enrichedSold} teamsData={reportTeams} globalPurse={globalPurse} />
                 )}
                 {activeTab === "Player results" && (
                   <PlayerResultsTab players={enrichedPlayers} />
