@@ -28,7 +28,7 @@ export const TEAM_CARD_ACCENTS = [
 export const LIVE_TEAM_ACCENTS = [
   { ring: "border-[#E5007D]/30", text: "text-[#E5007D]", bar: "bg-[#E5007D]", tint: "bg-[#E5007D]/10" },
   { ring: "border-[#00c853]/30", text: "text-[#00a844]", bar: "bg-[#00c853]", tint: "bg-[#00c853]/10" },
-  { ring: "border-slate-300", text: "text-slate-900", bar: "bg-slate-900", tint: "bg-slate-100" },
+  { ring: "border-[#ef4444]/30", text: "text-[#ef4444]", bar: "bg-[#ef4444]", tint: "bg-[#ef4444]/10" },
   { ring: "border-[#d97706]/30", text: "text-[#d97706]", bar: "bg-[#d97706]", tint: "bg-[#d97706]/10" },
   { ring: "border-[#0284c7]/30", text: "text-[#0284c7]", bar: "bg-[#0284c7]", tint: "bg-[#0284c7]/10" },
   { ring: "border-[#9333ea]/30", text: "text-[#9333ea]", bar: "bg-[#9333ea]", tint: "bg-[#9333ea]/10" },
