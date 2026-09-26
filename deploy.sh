@@ -58,7 +58,7 @@ DB_PASS="SportzAuction@4321"
 BACKEND_PORT="5000"
 JWT_SECRET=$(openssl rand -hex 32)
 ENABLE_HTTPS="y"
-LE_EMAIL="admin@sportzmitrastore.com"
+LE_EMAIL="sattvadoshi.dev@gmail.com"
 PROTOCOL="https"
 FRONTEND_ORIGIN="https://${FRONTEND_DOMAIN}"
 
@@ -380,37 +380,27 @@ rm -f /etc/nginx/sites-enabled/default
 rm -f /etc/nginx/sites-enabled/sportzmitra
 rm -f /etc/nginx/sites-enabled/sportzmitra-http
 
-# Tune global Nginx for high concurrency (written before sites so it works immediately)
+# Tune global Nginx for high concurrency (http-context settings only — no events/http blocks)
 cat > /etc/nginx/conf.d/performance.conf <<NGXPERF
-worker_rlimit_nofile 65535;
+sendfile           on;
+tcp_nopush         on;
+tcp_nodelay        on;
+keepalive_timeout  65;
+keepalive_requests 1000;
+types_hash_max_size 2048;
 
-events {
-    worker_connections 4096;
-    use epoll;
-    multi_accept on;
-}
+gzip             on;
+gzip_vary        on;
+gzip_proxied     any;
+gzip_comp_level  4;
+gzip_types text/plain text/css application/json application/javascript
+           text/xml application/xml application/xml+rss text/javascript
+           image/svg+xml;
 
-http {
-    sendfile           on;
-    tcp_nopush         on;
-    tcp_nodelay        on;
-    keepalive_timeout  65;
-    keepalive_requests 1000;
-    types_hash_max_size 2048;
+limit_req_zone \$binary_remote_addr zone=api_public:10m rate=60r/m;
+limit_req_zone \$binary_remote_addr zone=api_auth:10m   rate=10r/m;
 
-    gzip             on;
-    gzip_vary        on;
-    gzip_proxied     any;
-    gzip_comp_level  4;
-    gzip_types text/plain text/css application/json application/javascript
-               text/xml application/xml application/xml+rss text/javascript
-               image/svg+xml;
-
-    limit_req_zone \$binary_remote_addr zone=api_public:10m rate=60r/m;
-    limit_req_zone \$binary_remote_addr zone=api_auth:10m   rate=10r/m;
-
-    server_tokens off;
-}
+server_tokens off;
 NGXPERF
 
 # =============================================================================
@@ -433,7 +423,8 @@ server {
 NGINXTMP
 
 ln -sf /etc/nginx/sites-available/sportzmitra-temp /etc/nginx/sites-enabled/sportzmitra-temp
-nginx -t && systemctl reload nginx
+nginx -t && (systemctl start nginx 2>/dev/null || true) && systemctl restart nginx
+sleep 2  # give nginx a moment to fully start before certbot hits it
 
 # Obtain certificate for frontend subdomain
 info "Requesting Let's Encrypt certificate for ${FRONTEND_DOMAIN} ..."
