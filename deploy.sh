@@ -47,7 +47,9 @@ echo "Press ENTER to accept the [default] shown in brackets."
 echo ""
 
 SERVER_IP="201.18.193.28"
-DOMAIN="201.18.193.28"
+FRONTEND_DOMAIN="auction.sportzmitrastore.com"
+API_DOMAIN="api.auction.sportzmitrastore.com"
+DOMAIN="$FRONTEND_DOMAIN"          # kept for backward-compat references
 APP_DIR="/var/www/sportzmitra"
 DB_ROOT_PASS="SportzAuction@4321"
 DB_NAME="sportzmitra_auction"
@@ -55,13 +57,15 @@ DB_USER="root"
 DB_PASS="SportzAuction@4321"
 BACKEND_PORT="5000"
 JWT_SECRET=$(openssl rand -hex 32)
-ENABLE_HTTPS="n"
-PROTOCOL="http"
-FRONTEND_ORIGIN="http://${DOMAIN}"
-LE_EMAIL=""
+ENABLE_HTTPS="y"
+LE_EMAIL="sattvadoshi.dev@gmail.com"
+PROTOCOL="https"
+FRONTEND_ORIGIN="https://${FRONTEND_DOMAIN}"
 
 info "Configuration (fully hardcoded — no prompts):"
-echo "  Server IP / Domain: $SERVER_IP"
+echo "  Server IP:          $SERVER_IP"
+echo "  Frontend domain:    $FRONTEND_DOMAIN"
+echo "  API domain:         $API_DOMAIN"
 echo "  App directory:      $APP_DIR"
 echo "  DB name:            $DB_NAME"
 echo "  DB user:            $DB_USER"
@@ -297,7 +301,7 @@ JWT_SECRET=${JWT_SECRET}
 OTP_MODE=production
 MOCK_OTP=
 
-APP_BASE_URL=${PROTOCOL}://${DOMAIN}
+APP_BASE_URL=${PROTOCOL}://${API_DOMAIN}
 FRONTEND_ORIGIN=${FRONTEND_ORIGIN}
 DOTENV
 
@@ -332,9 +336,9 @@ rsync -a --exclude='node_modules' --exclude='dist' --exclude='.env' \
 
 # Write production .env for Vite
 cat > "$FRONTEND_DIR/.env.production" <<VENV
-VITE_API_BASE_URL=${PROTOCOL}://${DOMAIN}/api
-VITE_SOCKET_URL=${PROTOCOL}://${DOMAIN}
-VITE_API_ROOT=${PROTOCOL}://${DOMAIN}
+VITE_API_BASE_URL=${PROTOCOL}://${API_DOMAIN}/api
+VITE_SOCKET_URL=${PROTOCOL}://${API_DOMAIN}
+VITE_API_ROOT=${PROTOCOL}://${API_DOMAIN}
 VENV
 
 info "Installing frontend dependencies ..."
@@ -347,264 +351,9 @@ npm run build
 success "Frontend built → $FRONTEND_DIST"
 
 # =============================================================================
-# STEP 7 — Nginx
+# STEP 7 — Firewall (UFW) — must open port 80 BEFORE Certbot ACME challenge
 # =============================================================================
-section "STEP 7 · Nginx"
-
-# Remove default site
-rm -f /etc/nginx/sites-enabled/default
-
-cat > /etc/nginx/sites-available/sportzmitra <<NGINX
-# ── SportzMitra AuctionPro ── Nginx Config ────────────────────────────────────
-
-# Upstream — PM2 backend (single port, PM2 handles clustering internally)
-upstream sportzmitra_api {
-    server 127.0.0.1:${BACKEND_PORT};
-    keepalive 32;
-}
-
-# HTTP → HTTPS redirect (Certbot will update this block)
-server {
-    listen 80;
-    listen [::]:80;
-    server_name ${DOMAIN};
-
-    # For Let's Encrypt ACME challenge
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
-
-    location / {
-        return 301 https://\$host\$request_uri;
-    }
-}
-
-# HTTPS — main server block
-server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
-    server_name ${DOMAIN};
-
-    # TLS — managed by Certbot
-    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
-    include             /etc/letsencrypt/options-ssl-nginx.conf;
-    ssl_dhparam         /etc/letsencrypt/ssl-dhparams.pem;
-
-    # Security headers
-    add_header X-Frame-Options           "SAMEORIGIN"           always;
-    add_header X-Content-Type-Options    "nosniff"              always;
-    add_header X-XSS-Protection          "1; mode=block"        always;
-    add_header Referrer-Policy           "strict-origin"        always;
-    add_header Permissions-Policy        "geolocation=()"       always;
-
-    # ── Static frontend ────────────────────────────────────────────────────
-    root ${FRONTEND_DIST};
-    index index.html;
-
-    # Cache hashed Vite assets aggressively (assets/ folder has content-hashed filenames)
-    location /assets/ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-
-    # Uploaded player photos
-    location /uploads/ {
-        proxy_pass http://sportzmitra_api;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        expires 7d;
-        add_header Cache-Control "public";
-    }
-
-    # ── API proxy ──────────────────────────────────────────────────────────
-    location /api/ {
-        proxy_pass         http://sportzmitra_api;
-        proxy_http_version 1.1;
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
-        proxy_set_header   Connection        "";
-
-        # Larger body for file uploads
-        client_max_body_size 15m;
-
-        # Timeout tuning
-        proxy_connect_timeout 10s;
-        proxy_send_timeout    30s;
-        proxy_read_timeout    30s;
-    }
-
-    # ── Socket.io ──────────────────────────────────────────────────────────
-    location /socket.io/ {
-        proxy_pass         http://sportzmitra_api;
-        proxy_http_version 1.1;
-        proxy_set_header   Upgrade           \$http_upgrade;
-        proxy_set_header   Connection        "upgrade";
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
-
-        # WebSocket keep-alive
-        proxy_read_timeout  86400s;
-        proxy_send_timeout  86400s;
-    }
-
-    # ── SPA fallback — serve index.html for all unknown routes ─────────────
-    location / {
-        try_files \$uri \$uri/ /index.html;
-    }
-
-    # Block hidden files
-    location ~ /\. {
-        deny all;
-    }
-}
-NGINX
-
-ln -sf /etc/nginx/sites-available/sportzmitra /etc/nginx/sites-enabled/sportzmitra
-
-# Tune global Nginx for high concurrency
-cat > /etc/nginx/conf.d/performance.conf <<NGXPERF
-# Worker processes match vCPU count
-worker_processes auto;
-worker_rlimit_nofile 65535;
-
-events {
-    worker_connections 4096;
-    use epoll;
-    multi_accept on;
-}
-
-http {
-    sendfile           on;
-    tcp_nopush         on;
-    tcp_nodelay        on;
-    keepalive_timeout  65;
-    keepalive_requests 1000;
-    types_hash_max_size 2048;
-
-    # Gzip (backup — backend already compresses, Nginx handles static)
-    gzip             on;
-    gzip_vary        on;
-    gzip_proxied     any;
-    gzip_comp_level  4;
-    gzip_types text/plain text/css application/json application/javascript
-               text/xml application/xml application/xml+rss text/javascript
-               image/svg+xml;
-
-    # Rate limiting zones (shared memory — applies across all workers)
-    limit_req_zone \$binary_remote_addr zone=api_public:10m rate=60r/m;
-    limit_req_zone \$binary_remote_addr zone=api_auth:10m   rate=10r/m;
-
-    # Hide Nginx version
-    server_tokens off;
-}
-NGXPERF
-
-# Test Nginx config (skip SSL check before cert exists)
-nginx -t 2>&1 | grep -v "ssl" || true
-success "Nginx configured."
-
-# =============================================================================
-# STEP 8 — HTTPS (Let's Encrypt)
-# =============================================================================
-section "STEP 8 · HTTPS (Let's Encrypt)"
-
-# Create HTTP-only temp server block for ACME challenge (before cert exists)
-cat > /etc/nginx/sites-available/sportzmitra-temp <<NGINXTMP
-server {
-    listen 80;
-    server_name ${DOMAIN};
-    root /var/www/certbot;
-    location /.well-known/acme-challenge/ { root /var/www/certbot; }
-    location / { return 200 "SportzMitra Deploy"; add_header Content-Type text/plain; }
-}
-NGINXTMP
-
-mkdir -p /var/www/certbot
-ln -sf /etc/nginx/sites-available/sportzmitra-temp /etc/nginx/sites-enabled/sportzmitra-temp
-rm -f /etc/nginx/sites-enabled/sportzmitra
-nginx -t && systemctl reload nginx
-
-if [[ "$ENABLE_HTTPS" == "y" && -n "$LE_EMAIL" ]]; then
-  info "Requesting Let's Encrypt certificate for ${DOMAIN} ..."
-  certbot certonly --webroot -w /var/www/certbot \
-    -d "${DOMAIN}" \
-    --email "${LE_EMAIL}" \
-    --agree-tos --non-interactive --quiet
-
-  success "Certificate obtained for ${DOMAIN}."
-
-  # Enable full HTTPS Nginx config
-  rm -f /etc/nginx/sites-enabled/sportzmitra-temp
-  ln -sf /etc/nginx/sites-available/sportzmitra /etc/nginx/sites-enabled/sportzmitra
-  nginx -t && systemctl reload nginx
-  success "Nginx reloaded with HTTPS."
-
-  # Auto-renew via cron
-  (crontab -l 2>/dev/null; echo "0 3 * * * certbot renew --quiet --deploy-hook 'systemctl reload nginx'") | crontab -
-  success "Certbot auto-renew cron set (daily at 3 AM)."
-else
-  warn "Skipping HTTPS — switching to HTTP-only mode."
-  # Use HTTP-only Nginx config
-  cat > /etc/nginx/sites-available/sportzmitra-http <<NGINXHTTP
-server {
-    listen 80;
-    listen [::]:80;
-    server_name ${DOMAIN} ${SERVER_IP};
-
-    root ${FRONTEND_DIST};
-    index index.html;
-
-    location /assets/ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-
-    location /api/ {
-        proxy_pass         http://127.0.0.1:${BACKEND_PORT};
-        proxy_http_version 1.1;
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header   Connection        "";
-        client_max_body_size 15m;
-    }
-
-    location /socket.io/ {
-        proxy_pass         http://127.0.0.1:${BACKEND_PORT};
-        proxy_http_version 1.1;
-        proxy_set_header   Upgrade    \$http_upgrade;
-        proxy_set_header   Connection "upgrade";
-        proxy_set_header   Host       \$host;
-        proxy_read_timeout 86400s;
-    }
-
-    location /uploads/ {
-        proxy_pass http://127.0.0.1:${BACKEND_PORT};
-    }
-
-    location / {
-        try_files \$uri \$uri/ /index.html;
-    }
-}
-NGINXHTTP
-
-  rm -f /etc/nginx/sites-enabled/sportzmitra-temp
-  ln -sf /etc/nginx/sites-available/sportzmitra-http /etc/nginx/sites-enabled/sportzmitra
-  nginx -t && systemctl reload nginx
-fi
-
-systemctl enable nginx
-success "Nginx enabled."
-
-# =============================================================================
-# STEP 9 — Firewall (UFW)
-# =============================================================================
-section "STEP 9 · Firewall"
+section "STEP 7 · Firewall (open ports before HTTPS)"
 
 ufw --force reset
 ufw default deny incoming
@@ -620,6 +369,244 @@ success "UFW firewall configured (SSH + 80 + 443 open)."
 systemctl enable fail2ban
 systemctl start fail2ban
 success "fail2ban enabled."
+
+# =============================================================================
+# STEP 8 — Nginx
+# =============================================================================
+section "STEP 8 · Nginx"
+
+# Remove default site
+rm -f /etc/nginx/sites-enabled/default
+rm -f /etc/nginx/sites-enabled/sportzmitra
+rm -f /etc/nginx/sites-enabled/sportzmitra-http
+
+# Tune global Nginx for high concurrency (http-context settings only — no events/http blocks)
+cat > /etc/nginx/conf.d/performance.conf <<NGXPERF
+sendfile           on;
+tcp_nopush         on;
+tcp_nodelay        on;
+keepalive_timeout  65;
+keepalive_requests 1000;
+types_hash_max_size 2048;
+
+gzip             on;
+gzip_vary        on;
+gzip_proxied     any;
+gzip_comp_level  4;
+gzip_types text/plain text/css application/json application/javascript
+           text/xml application/xml application/xml+rss text/javascript
+           image/svg+xml;
+
+limit_req_zone \$binary_remote_addr zone=api_public:10m rate=60r/m;
+limit_req_zone \$binary_remote_addr zone=api_auth:10m   rate=10r/m;
+
+server_tokens off;
+NGXPERF
+
+# =============================================================================
+# STEP 8 — HTTPS (Let's Encrypt) — certbot for BOTH subdomains
+# =============================================================================
+section "STEP 8 · HTTPS (Let's Encrypt)"
+
+mkdir -p /var/www/certbot
+
+# Temp HTTP server block to satisfy ACME challenge for BOTH subdomains
+cat > /etc/nginx/sites-available/sportzmitra-temp <<NGINXTMP
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${FRONTEND_DOMAIN} ${API_DOMAIN};
+    root /var/www/certbot;
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 200 "SportzMitra Deploy"; add_header Content-Type text/plain; }
+}
+NGINXTMP
+
+ln -sf /etc/nginx/sites-available/sportzmitra-temp /etc/nginx/sites-enabled/sportzmitra-temp
+nginx -t && (systemctl start nginx 2>/dev/null || true) && systemctl restart nginx
+sleep 2  # give nginx a moment to fully start before certbot hits it
+
+# Obtain certificate for frontend subdomain
+info "Requesting Let's Encrypt certificate for ${FRONTEND_DOMAIN} ..."
+certbot certonly --webroot -w /var/www/certbot \
+  -d "${FRONTEND_DOMAIN}" \
+  --email "${LE_EMAIL}" \
+  --agree-tos --non-interactive --quiet
+success "Certificate obtained for ${FRONTEND_DOMAIN}."
+
+# Obtain certificate for API subdomain
+info "Requesting Let's Encrypt certificate for ${API_DOMAIN} ..."
+certbot certonly --webroot -w /var/www/certbot \
+  -d "${API_DOMAIN}" \
+  --email "${LE_EMAIL}" \
+  --agree-tos --non-interactive --quiet
+success "Certificate obtained for ${API_DOMAIN}."
+
+# Remove temp block — write the real two-vhost Nginx config
+rm -f /etc/nginx/sites-enabled/sportzmitra-temp
+
+cat > /etc/nginx/sites-available/sportzmitra <<NGINX
+# ── SportzMitra AuctionPro ── Nginx Config ────────────────────────────────────
+
+# Upstream — PM2 backend (PM2 handles clustering internally)
+upstream sportzmitra_api {
+    server 127.0.0.1:${BACKEND_PORT};
+    keepalive 32;
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FRONTEND  →  auction.sportzmitrastore.com
+# ─────────────────────────────────────────────────────────────────────────────
+
+# HTTP → HTTPS redirect for frontend
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${FRONTEND_DOMAIN};
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://\$host\$request_uri; }
+}
+
+# HTTPS — frontend (serves the Vite SPA)
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name ${FRONTEND_DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${FRONTEND_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${FRONTEND_DOMAIN}/privkey.pem;
+    include             /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam         /etc/letsencrypt/ssl-dhparams.pem;
+
+    add_header X-Frame-Options        "SAMEORIGIN"    always;
+    add_header X-Content-Type-Options "nosniff"       always;
+    add_header X-XSS-Protection       "1; mode=block" always;
+    add_header Referrer-Policy        "strict-origin"  always;
+    add_header Permissions-Policy     "geolocation=()" always;
+
+    root ${FRONTEND_DIST};
+    index index.html;
+
+    # Aggressively cache hashed Vite assets
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # SPA fallback
+    location / {
+        try_files \$uri \$uri/ /index.html;
+    }
+
+    # Block hidden files
+    location ~ /\. {
+        deny all;
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BACKEND API  →  api.auction.sportzmitrastore.com
+# ─────────────────────────────────────────────────────────────────────────────
+
+# HTTP → HTTPS redirect for API
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${API_DOMAIN};
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://\$host\$request_uri; }
+}
+
+# HTTPS — API (proxies all traffic to PM2 backend on port ${BACKEND_PORT})
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name ${API_DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${API_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${API_DOMAIN}/privkey.pem;
+    include             /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam         /etc/letsencrypt/ssl-dhparams.pem;
+
+    add_header X-Frame-Options        "SAMEORIGIN"    always;
+    add_header X-Content-Type-Options "nosniff"       always;
+    add_header X-XSS-Protection       "1; mode=block" always;
+    add_header Referrer-Policy        "strict-origin"  always;
+
+    # CORS — allow requests from the frontend domain
+    add_header Access-Control-Allow-Origin  "https://${FRONTEND_DOMAIN}" always;
+    add_header Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS" always;
+    add_header Access-Control-Allow-Headers "Authorization, Content-Type, X-Requested-With" always;
+    add_header Access-Control-Allow-Credentials "true" always;
+
+    # ── API routes ─────────────────────────────────────────────────────────
+    location / {
+        # Handle preflight OPTIONS
+        if (\$request_method = OPTIONS) {
+            return 204;
+        }
+
+        proxy_pass         http://sportzmitra_api;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              \$host;
+        proxy_set_header   X-Real-IP         \$remote_addr;
+        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto \$scheme;
+        proxy_set_header   Connection        "";
+
+        client_max_body_size 15m;
+
+        proxy_connect_timeout 10s;
+        proxy_send_timeout    30s;
+        proxy_read_timeout    30s;
+    }
+
+    # ── Socket.io (WebSocket upgrade) ──────────────────────────────────────
+    location /socket.io/ {
+        proxy_pass         http://sportzmitra_api;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade           \$http_upgrade;
+        proxy_set_header   Connection        "upgrade";
+        proxy_set_header   Host              \$host;
+        proxy_set_header   X-Real-IP         \$remote_addr;
+        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto \$scheme;
+
+        proxy_read_timeout  86400s;
+        proxy_send_timeout  86400s;
+    }
+
+    # ── Uploaded player photos ─────────────────────────────────────────────
+    location /uploads/ {
+        proxy_pass http://sportzmitra_api;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        expires 7d;
+        add_header Cache-Control "public";
+    }
+
+    # Block hidden files
+    location ~ /\. {
+        deny all;
+    }
+}
+NGINX
+
+ln -sf /etc/nginx/sites-available/sportzmitra /etc/nginx/sites-enabled/sportzmitra
+nginx -t && systemctl reload nginx
+success "Nginx reloaded with HTTPS for both subdomains."
+
+# Auto-renew via cron
+(crontab -l 2>/dev/null; echo "0 3 * * * certbot renew --quiet --deploy-hook 'systemctl reload nginx'") | crontab -
+success "Certbot auto-renew cron set (daily at 3 AM)."
+
+systemctl enable nginx
+success "Nginx enabled."
+
+# =============================================================================
+# STEP 9 — Firewall already configured in Step 7 (before Certbot)
+# =============================================================================
+success "Firewall already configured in Step 7 (UFW: SSH + 80 + 443)."
 
 # =============================================================================
 # STEP 10 — PM2 startup on reboot
@@ -656,11 +643,8 @@ echo -e "${BOLD}${GREEN}"
 echo "  ┌─────────────────────────────────────────────────────────┐"
 echo "  │   SportzMitra AuctionPro is LIVE                        │"
 echo "  ├─────────────────────────────────────────────────────────┤"
-if [[ "$ENABLE_HTTPS" == "y" ]]; then
-echo "  │   URL:      https://${DOMAIN}"
-else
-echo "  │   URL:      http://${DOMAIN}  (HTTP only)"
-fi
+echo "  │   Frontend: https://${FRONTEND_DOMAIN}"
+echo "  │   API:      https://${API_DOMAIN}"
 echo "  │   Backend:  127.0.0.1:${BACKEND_PORT}  (PM2, 2 workers)       │"
 echo "  │   DB:       ${DB_NAME} @ localhost                  │"
 echo "  ├─────────────────────────────────────────────────────────┤"
