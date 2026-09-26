@@ -380,67 +380,93 @@ rm -f /etc/nginx/sites-enabled/default
 rm -f /etc/nginx/sites-enabled/sportzmitra
 rm -f /etc/nginx/sites-enabled/sportzmitra-http
 
-# Tune global Nginx for high concurrency (http-context settings only — no events/http blocks)
-cat > /etc/nginx/conf.d/performance.conf <<NGXPERF
-sendfile           on;
-tcp_nopush         on;
-tcp_nodelay        on;
-keepalive_timeout  65;
-keepalive_requests 1000;
-types_hash_max_size 2048;
+# Replace Hostinger's custom nginx.conf (has GeoIP/pagespeed that block port binding)
+# with a clean standard config that includes all tuning settings
+cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak 2>/dev/null || true
+cat > /etc/nginx/nginx.conf <<'MAINNGINX'
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+include /etc/nginx/modules-enabled/*.conf;
 
-gzip             on;
-gzip_vary        on;
-gzip_proxied     any;
-gzip_comp_level  4;
-gzip_types text/plain text/css application/json application/javascript
-           text/xml application/xml application/xml+rss text/javascript
-           image/svg+xml;
+events {
+    worker_connections 1024;
+    multi_accept on;
+}
 
-limit_req_zone \$binary_remote_addr zone=api_public:10m rate=60r/m;
-limit_req_zone \$binary_remote_addr zone=api_auth:10m   rate=10r/m;
+http {
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    keepalive_requests 1000;
+    types_hash_max_size 2048;
+    server_tokens off;
 
-server_tokens off;
-NGXPERF
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 4;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript image/svg+xml;
+
+    access_log /var/log/nginx/access.log;
+    error_log /var/log/nginx/error.log;
+
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
+}
+MAINNGINX
+
+# Remove any leftover performance.conf to avoid duplicate directives
+rm -f /etc/nginx/conf.d/performance.conf
 
 # =============================================================================
 # STEP 8 — HTTPS (Let's Encrypt) — certbot for BOTH subdomains
 # =============================================================================
 section "STEP 8 · HTTPS (Let's Encrypt)"
 
-mkdir -p /var/www/certbot
 
-# Temp HTTP server block to satisfy ACME challenge for BOTH subdomains
-cat > /etc/nginx/sites-available/sportzmitra-temp <<NGINXTMP
-server {
-    listen 80;
-    listen [::]:80;
-    server_name ${FRONTEND_DOMAIN} ${API_DOMAIN};
-    root /var/www/certbot;
-    location /.well-known/acme-challenge/ { root /var/www/certbot; }
-    location / { return 200 "SportzMitra Deploy"; add_header Content-Type text/plain; }
-}
-NGINXTMP
+# Stop nginx so certbot --standalone can bind to port 80
+systemctl stop nginx 2>/dev/null || true
+pkill -f "nginx" 2>/dev/null || true
+sleep 2
 
-ln -sf /etc/nginx/sites-available/sportzmitra-temp /etc/nginx/sites-enabled/sportzmitra-temp
-nginx -t && (systemctl start nginx 2>/dev/null || true) && systemctl restart nginx
-sleep 2  # give nginx a moment to fully start before certbot hits it
-
-# Obtain certificate for frontend subdomain
+# Obtain certificate for frontend subdomain (standalone — no nginx needed)
 info "Requesting Let's Encrypt certificate for ${FRONTEND_DOMAIN} ..."
-certbot certonly --webroot -w /var/www/certbot \
+certbot certonly --standalone \
   -d "${FRONTEND_DOMAIN}" \
   --email "${LE_EMAIL}" \
-  --agree-tos --non-interactive --quiet
+  --agree-tos --non-interactive
 success "Certificate obtained for ${FRONTEND_DOMAIN}."
 
 # Obtain certificate for API subdomain
 info "Requesting Let's Encrypt certificate for ${API_DOMAIN} ..."
-certbot certonly --webroot -w /var/www/certbot \
+certbot certonly --standalone \
   -d "${API_DOMAIN}" \
   --email "${LE_EMAIL}" \
-  --agree-tos --non-interactive --quiet
+  --agree-tos --non-interactive
 success "Certificate obtained for ${API_DOMAIN}."
+
+# Also create the options-ssl-nginx.conf and ssl-dhparams.pem that
+# standalone certbot does NOT create (only --nginx plugin does)
+if [ ! -f /etc/letsencrypt/options-ssl-nginx.conf ]; then
+  cat > /etc/letsencrypt/options-ssl-nginx.conf <<'SSLCONF'
+ssl_session_cache shared:le_nginx_SSL:10m;
+ssl_session_timeout 1440m;
+ssl_session_tickets off;
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_prefer_server_ciphers off;
+ssl_ciphers "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256";
+SSLCONF
+fi
+
+if [ ! -f /etc/letsencrypt/ssl-dhparams.pem ]; then
+  info "Generating DH params (this takes ~30s) ..."
+  openssl dhparam -out /etc/letsencrypt/ssl-dhparams.pem 2048
+fi
 
 # Remove temp block — write the real two-vhost Nginx config
 rm -f /etc/nginx/sites-enabled/sportzmitra-temp
