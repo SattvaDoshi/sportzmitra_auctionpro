@@ -197,6 +197,7 @@ export default function PublicLiveView() {
     if (!state) return null;
     return {
       id: state.current_player_id,
+      serial_number: state.serial_number || "",
       player_name: state.player_name || "",
       category: state.category || "",
       player_role: state.player_role || state.batting_style || "",
@@ -299,6 +300,10 @@ export default function PublicLiveView() {
 
   const seasonLabel = auction?.season_label || auction?.auction_name || "Auction Arena";
 
+  const sponsorUrls = auction?.sponsor_logo_urls 
+    ? auction.sponsor_logo_urls.split(",").map((s) => s.trim()).filter(Boolean) 
+    : [];
+
   return (
     <div className="relative flex min-h-screen w-full flex-col overflow-x-hidden bg-[#0B0F1A] font-sans text-white bg-[url('/publicView-bg.png')] bg-cover bg-center bg-no-repeat">
       <DisplayFontLoader />
@@ -326,9 +331,13 @@ export default function PublicLiveView() {
         <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           {/* LEFT: Logo / wordmark + season label */}
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#E5007D]/15">
-              <Gavel className="h-6 w-6 -rotate-45 text-[#E5007D]" />
-            </div>
+            {auction?.auction_logo_url ? (
+              <img src={auction.auction_logo_url} alt="Auction Logo" className="h-14 w-auto object-contain" />
+            ) : (
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#E5007D]/15">
+                <Gavel className="h-6 w-6 -rotate-45 text-[#E5007D]" />
+              </div>
+            )}
             <div className="min-w-0">
               <div className="aa-display truncate text-3xl uppercase leading-none tracking-tight sm:text-4xl">
                 <span className="text-[#E5007D]">Auction</span> <span className="text-white">Arena</span>
@@ -344,9 +353,17 @@ export default function PublicLiveView() {
 
           {/* RIGHT: tagline + secondary status pills */}
           <div className="flex flex-col items-start gap-2 sm:items-end">
-            <div className="text-[11px] font-bold uppercase tracking-[0.3em] text-white/50 sm:text-xs">
-              Players &middot; Passion &middot; Bigger Dreams
-            </div>
+            {sponsorUrls.length > 0 ? (
+              <div className="flex items-center gap-4">
+                {sponsorUrls.map((url, i) => (
+                  <img key={i} src={url} alt="Sponsor" className="h-10 w-auto object-contain opacity-90 drop-shadow-md" />
+                ))}
+              </div>
+            ) : (
+              <div className="text-[11px] font-bold uppercase tracking-[0.3em] text-white/50 sm:text-xs">
+                Players &middot; Passion &middot; Bigger Dreams
+              </div>
+            )}
             <div className="flex flex-wrap items-center gap-2">
               <a
                 href={`/live/${publicSlug}/dashboard`}
@@ -392,7 +409,7 @@ export default function PublicLiveView() {
                 </span>
 
                 <h1 className="aa-display mt-4 break-words text-[clamp(48px,7.5vw,96px)] uppercase leading-[0.82] tracking-tight text-white [text-shadow:0_4px_24px_rgba(0,0,0,0.35)]">
-                  {currentPlayer?.player_name || "Waiting for player..."}
+                  {currentPlayer?.serial_number ? `${currentPlayer.serial_number} - ` : ""}{currentPlayer?.player_name || "Waiting for player..."}
                   {currentPlayer?.jersey_number ? (
                     <span className="text-[0.6em] text-[#E5007D]">{currentPlayer.jersey_number}</span>
                   ) : null}
@@ -534,7 +551,7 @@ function TeamPlayersModal({ team, players, onClose }) {
                   <div className="flex min-w-0 items-center gap-3">
                     <SquadAvatar name={p.player_name} photoUrl={p.photo_url} />
                     <div className="min-w-0">
-                      <div className="truncate font-bold text-white">{p.player_name}</div>
+                      <div className="truncate font-bold text-white">{p.serial_number ? `${p.serial_number} - ` : ""}{p.player_name}</div>
                       <div className="mt-0.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-white/40">
                         <span>{p.category || "N/A"}</span>
                         <span className="h-1 w-1 rounded-full bg-white/20" />

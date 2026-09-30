@@ -9,7 +9,7 @@ import api from "../api/api";
 const DEFAULT_PLAYER_IMAGE = "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?q=80&w=300&auto=format&fit=crop";
 
 const emptyPlayer = {
-  player_name: "", player_mobile: "", player_email: "", category: "", player_role: "", base_price: "", tshirt_size: "", age: "", area: "", previous_team: "", photo_url: "", original_photo_url: "", photo_processing_status: "", photo_processing_mode: "",
+  serial_number: "", player_name: "", player_mobile: "", player_email: "", category: "", player_role: "", base_price: "", tshirt_size: "", age: "", area: "", previous_team: "", photo_url: "", original_photo_url: "", photo_processing_status: "", photo_processing_mode: "",
 };
 
 const emptyCorrection = { status: "AVAILABLE", sold_team_id: "", sold_price: "", auction_round: "MAIN", category: "", player_role: "", base_price: "", tshirt_size: "", reason: "" };
@@ -113,8 +113,8 @@ export default function PlayersPage() {
 
   function downloadTemplate() {
     const rows = [
-      { "Player Name": "Rahul Jain", Mobile: "9111111111", Email: "", Category: "A", Role: "ALL_ROUNDER", "Base Price": 500, "T-shirt Size": "XL", Age: 31, Area: "Bhayander", "Previous Team": "", "Photo URL": "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?q=80&w=300&auto=format&fit=crop" },
-      { "Player Name": "Priya Sharma", Mobile: "9222222222", Email: "", Category: "B", Role: "BATSMAN", "Base Price": 300, "T-shirt Size": "M", Age: 25, Area: "Andheri", "Previous Team": "", "Photo URL": "https://drive.google.com/file/d/YOUR_FILE_ID_HERE/view?usp=sharing" },
+      { "Serial Number": "1", "Player Name": "Rahul Jain", Mobile: "9111111111", Email: "", Category: "A", Role: "ALL_ROUNDER", "Base Price": 500, "T-shirt Size": "XL", Age: 31, Area: "Bhayander", "Previous Team": "", "Photo URL": "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?q=80&w=300&auto=format&fit=crop" },
+      { "Serial Number": "2", "Player Name": "Priya Sharma", Mobile: "9222222222", Email: "", Category: "B", Role: "BATSMAN", "Base Price": 300, "T-shirt Size": "M", Age: 25, Area: "Andheri", "Previous Team": "", "Photo URL": "https://drive.google.com/file/d/YOUR_FILE_ID_HERE/view?usp=sharing" },
     ];
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -429,7 +429,7 @@ export default function PlayersPage() {
                       <div className="flex flex-1 flex-col justify-between min-w-0 py-0.5">
                         <div className="space-y-0.5">
                           <h3 className="text-sm font-bold text-slate-900 truncate">
-                            {player.player_name}
+                            {player.serial_number ? `${player.serial_number} - ` : ""}{player.player_name}
                           </h3>
                           <p className="truncate text-xs font-semibold text-slate-600">{player.player_role || "—"}</p>
                           <p className="truncate text-xs text-slate-400">
@@ -529,6 +529,7 @@ function PlayerForm({ title, form, setForm, onSubmit, onClose, onPhotoUpload, up
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
+        <Input label="Serial Number (ID)" value={form.serial_number} onChange={(v) => set("serial_number", v)} />
         <Input label="Player Name" value={form.player_name} onChange={(v) => set("player_name", v)} required />
         <Input label="Mobile" value={form.player_mobile} onChange={(v) => set("player_mobile", v)} />
         <Input label="Email" value={form.player_email} onChange={(v) => set("player_email", v)} />

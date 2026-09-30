@@ -45,9 +45,10 @@ CREATE PROCEDURE `sp_select_current_player`(
   IN p_user_id    BIGINT
 )
 BEGIN
-  DECLARE v_player_name VARCHAR(150);
+  DECLARE v_player_name    VARCHAR(150);
+  DECLARE v_prev_player_id BIGINT DEFAULT NULL;
 
-  -- Validate player belongs to this auction
+  -- Validate player belongs to this auction and is selectable
   SELECT player_name INTO v_player_name
   FROM players
   WHERE id = p_player_id AND auction_id = p_auction_id AND COALESCE(is_deleted, 0) = 0
@@ -57,7 +58,22 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Player not found in this auction';
   END IF;
 
-  -- Set player status to IN_AUCTION
+  -- Find the currently IN_AUCTION player (if any) so we can reset them
+  SELECT current_player_id INTO v_prev_player_id
+  FROM auction_state
+  WHERE auction_id = p_auction_id
+  LIMIT 1;
+
+  -- If there was a different player already in auction, reset them back to AVAILABLE
+  IF v_prev_player_id IS NOT NULL AND v_prev_player_id <> p_player_id THEN
+    UPDATE players
+    SET status = 'AVAILABLE'
+    WHERE id = v_prev_player_id
+      AND auction_id = p_auction_id
+      AND status = 'IN_AUCTION';
+  END IF;
+
+  -- Set the new player status to IN_AUCTION
   UPDATE players
   SET status = 'IN_AUCTION'
   WHERE id = p_player_id AND auction_id = p_auction_id;

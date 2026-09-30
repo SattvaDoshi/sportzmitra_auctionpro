@@ -82,6 +82,7 @@ async function upsertOrgPlayer(conn, organizationId, data) {
   const photoProcessingMode = clean(data.photo_processing_mode);
   const photoSource = clean(data.photo_source) || null;
   const source = clean(data.source) || "MANUAL";
+  const serialNumber = clean(data.serial_number);
 
   if (!playerName) throw new Error("Player name is required");
 
@@ -119,6 +120,7 @@ async function upsertOrgPlayer(conn, organizationId, data) {
            photo_processing_status = CASE WHEN ? IS NOT NULL THEN ? ELSE photo_processing_status END,
            photo_processing_mode = CASE WHEN ? IS NOT NULL THEN ? ELSE photo_processing_mode END,
            photo_updated_at = CASE WHEN ? IS NOT NULL THEN NOW() ELSE photo_updated_at END,
+           serial_number = COALESCE(?, serial_number),
            updated_at = NOW()
        WHERE id = ?`,
       [
@@ -140,6 +142,7 @@ async function upsertOrgPlayer(conn, organizationId, data) {
         photoUrl,
         photoProcessingMode,
         photoUrl,
+        serialNumber,
         existing.id,
       ]
     );
@@ -159,8 +162,8 @@ async function upsertOrgPlayer(conn, organizationId, data) {
     `INSERT INTO org_players
      (organization_id, player_name, mobile, normalized_mobile, email, area, default_role,
       default_tshirt_size, photo_url, original_photo_url, photo_source, photo_processing_status,
-      photo_processing_mode, photo_updated_at, created_source)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NOT NULL THEN NOW() ELSE NULL END, ?)`,
+      photo_processing_mode, photo_updated_at, created_source, serial_number)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NOT NULL THEN NOW() ELSE NULL END, ?, ?)`,
     [
       organizationId,
       playerName,
@@ -177,6 +180,7 @@ async function upsertOrgPlayer(conn, organizationId, data) {
       photoProcessingMode,
       photoUrl,
       source,
+      serialNumber,
     ]
   );
 
@@ -251,6 +255,7 @@ router.post("/", authMiddleware, requireRole("AUCTION_ADMIN", "SUPER_ADMIN"), as
       original_photo_url,
       photo_processing_status,
       photo_processing_mode,
+      serial_number,
     } = req.body;
 
     if (!auction_id || !player_name) {
@@ -277,6 +282,7 @@ router.post("/", authMiddleware, requireRole("AUCTION_ADMIN", "SUPER_ADMIN"), as
       photo_processing_mode,
       photo_source: photo_url ? "MANUAL" : null,
       source: "MANUAL",
+      serial_number,
     });
 
     const latestPhotoUrl = clean(photo_url) || orgPlayer.photo_url || null;
@@ -284,8 +290,8 @@ router.post("/", authMiddleware, requireRole("AUCTION_ADMIN", "SUPER_ADMIN"), as
     const [result] = await conn.query(
       `INSERT INTO players
        (auction_id, organization_id, org_player_id, player_name, player_mobile, normalized_mobile, player_email,
-        category, player_role, base_price, tshirt_size, age, area, previous_team, photo_url, registration_source, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MANUAL', 'AVAILABLE')`,
+        category, player_role, base_price, tshirt_size, age, area, previous_team, photo_url, registration_source, status, serial_number)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MANUAL', 'AVAILABLE', ?)`,
       [
         auction_id,
         organizationId,
@@ -302,6 +308,7 @@ router.post("/", authMiddleware, requireRole("AUCTION_ADMIN", "SUPER_ADMIN"), as
         clean(area),
         clean(previous_team),
         latestPhotoUrl,
+        clean(serial_number),
       ]
     );
 
@@ -336,6 +343,7 @@ router.put("/:playerId", authMiddleware, requireRole("AUCTION_ADMIN", "SUPER_ADM
       photo_processing_status,
       photo_processing_mode,
       status,
+      serial_number,
     } = req.body;
 
     if (!player_name) return res.status(400).json({ message: "player_name is required" });
@@ -362,6 +370,7 @@ router.put("/:playerId", authMiddleware, requireRole("AUCTION_ADMIN", "SUPER_ADM
       photo_processing_mode,
       photo_source: photo_url ? "MANUAL" : null,
       source: "MANUAL",
+      serial_number,
     });
 
     const latestPhotoUrl = clean(photo_url) || orgPlayer.photo_url || existing.photo_url || null;
@@ -370,7 +379,7 @@ router.put("/:playerId", authMiddleware, requireRole("AUCTION_ADMIN", "SUPER_ADM
       `UPDATE players
        SET organization_id = ?, org_player_id = ?, player_name = ?, player_mobile = ?, normalized_mobile = ?,
            player_email = ?, category = ?, player_role = ?, base_price = ?, tshirt_size = ?, age = ?,
-           area = ?, previous_team = ?, photo_url = ?, status = ?
+           area = ?, previous_team = ?, photo_url = ?, status = ?, serial_number = ?
        WHERE id = ?`,
       [
         organizationId,
@@ -388,6 +397,7 @@ router.put("/:playerId", authMiddleware, requireRole("AUCTION_ADMIN", "SUPER_ADM
         clean(previous_team),
         latestPhotoUrl,
         status || existing.status || "AVAILABLE",
+        clean(serial_number),
         playerId,
       ]
     );
@@ -443,6 +453,7 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
         const age = row.Age || row.age || null;
         const area = clean(row.Area || row.area);
         const previousTeam = clean(row["Previous Team"] || row.previous_team);
+        const serialNumber = clean(row["Serial Number"] || row["Serial No"] || row.serial_number || row.id || row.Id);
         const rawPhotoUrl = clean(row["Photo URL"] || row["Photo"] || row.photo_url || row.photo);
         let photoUrl = rawPhotoUrl;
         let originalPhotoUrl = null;
@@ -475,6 +486,7 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
           photo_processing_mode: photoProcessingMode,
           photo_source: photoUrl ? (originalPhotoUrl ? "EXCEL_URL_PROCESSED" : "EXCEL_URL") : null,
           source: "EXCEL",
+          serial_number: serialNumber,
         });
 
         const latestPhotoUrl = photoUrl || orgPlayer.photo_url || null;
@@ -483,8 +495,8 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
           `INSERT INTO players
            (auction_id, organization_id, org_player_id, player_name, player_mobile, normalized_mobile, player_email,
             category, player_role, base_price, tshirt_size, age, area, previous_team, photo_url,
-            registration_source, import_batch_id, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'EXCEL', ?, 'AVAILABLE')`,
+            registration_source, import_batch_id, status, serial_number)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'EXCEL', ?, 'AVAILABLE', ?)`,
           [
             auctionId,
             organizationId,
@@ -502,6 +514,7 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
             previousTeam,
             latestPhotoUrl,
             importBatchId,
+            serialNumber,
           ]
         );
 

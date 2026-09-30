@@ -199,6 +199,10 @@ export default function PublicDashboardView() {
 
   const { auction, dashboardSummary = {} } = data;
 
+  const sponsorUrls = auction?.sponsor_logo_urls 
+    ? auction.sponsor_logo_urls.split(",").map((s) => s.trim()).filter(Boolean) 
+    : [];
+
   const tabDefs = [
     { key: "teams", label: "TEAMS OVERVIEW", Icon: Shield, count: null },
     { key: "sold", label: "SOLD PLAYERS", Icon: UserCheck, count: data.soldPlayers?.length || 0 },
@@ -215,9 +219,13 @@ export default function PublicDashboardView() {
         {/* Header Section */}
         <header className="mb-5 sm:mb-6 flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-start gap-3">
-            <div className="hidden xs:flex h-11 w-11 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-2xl bg-white/70 shadow-sm">
-              <Gavel size={22} className="text-[#EC008C]" />
-            </div>
+            {auction?.auction_logo_url ? (
+              <img src={auction.auction_logo_url} alt="Auction Logo" className="hidden xs:flex h-14 w-auto object-contain drop-shadow-sm" />
+            ) : (
+              <div className="hidden xs:flex h-11 w-11 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-2xl bg-white/70 shadow-sm">
+                <Gavel size={22} className="text-[#EC008C]" />
+              </div>
+            )}
             <div>
               <h1 className="text-xl sm:text-2xl lg:text-3xl font-black italic uppercase leading-tight tracking-tight text-slate-900">
                 {auction?.auction_name || <span className="text-[#EC008C]">Auction</span>}
@@ -228,16 +236,24 @@ export default function PublicDashboardView() {
             </div>
           </div>
 
-          <p
-            className="hidden md:block -rotate-2 select-none font-serif text-base italic leading-tight text-[#EC008C]/90"
-            style={{ fontFamily: "'Brush Script MT', cursive" }}
-          >
-            Players
-            <br />
-            Passion
-            <br />
-            Bigger Dreams
-          </p>
+          {sponsorUrls.length > 0 ? (
+            <div className="hidden md:flex items-center gap-4">
+              {sponsorUrls.map((url, i) => (
+                <img key={i} src={url} alt="Sponsor" className="h-10 w-auto object-contain drop-shadow-sm mix-blend-multiply" />
+              ))}
+            </div>
+          ) : (
+            <p
+              className="hidden md:block -rotate-2 select-none font-serif text-base italic leading-tight text-[#EC008C]/90"
+              style={{ fontFamily: "'Brush Script MT', cursive" }}
+            >
+              Players
+              <br />
+              Passion
+              <br />
+              Bigger Dreams
+            </p>
+          )}
 
           <div className="flex w-full items-center gap-3 sm:w-auto">
             <span className="flex items-center gap-2 rounded-full bg-white px-3 sm:px-3.5 py-1.5 text-[11px] sm:text-xs font-bold text-slate-700 shadow-sm border border-slate-200">

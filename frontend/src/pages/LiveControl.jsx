@@ -602,7 +602,7 @@ export default function LiveControl() {
 
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3.5">
               <div className="truncate text-lg font-black uppercase tracking-tight text-slate-900">
-                {currentPlayer?.player_name || "Player Not Selected"}
+                {currentPlayer?.serial_number ? `${currentPlayer.serial_number} - ` : ""}{currentPlayer?.player_name || "Player Not Selected"}
               </div>
 
               <div className="mt-3 grid grid-cols-3 gap-2 text-center">
@@ -703,7 +703,7 @@ export default function LiveControl() {
                     }`}
                   >
                     <div className="min-w-0">
-                      <div className="truncate text-xs font-extrabold uppercase text-slate-900">{player.player_name || player.name}</div>
+                      <div className="truncate text-xs font-extrabold uppercase text-slate-900">{player.serial_number ? `${player.serial_number} - ` : ""}{player.player_name || player.name}</div>
                       <div className="truncate text-[10px] font-semibold text-slate-400">{player.mobile || player.player_mobile || "N/A"}</div>
                     </div>
                     <div className="truncate text-[10px] font-black uppercase text-[#E5007D]">{player.player_role || "-"}</div>
@@ -723,7 +723,7 @@ export default function LiveControl() {
                 >
                   <div className="min-w-0">
                     <div className="text-[9px] font-black uppercase tracking-widest text-amber-700">Suggested Player</div>
-                    <div className="truncate text-xs font-black uppercase text-slate-900">{suggestedPlayer.player_name}</div>
+                    <div className="truncate text-xs font-black uppercase text-slate-900">{suggestedPlayer.serial_number ? `${suggestedPlayer.serial_number} - ` : ""}{suggestedPlayer.player_name}</div>
                   </div>
                   <UserCheck className="h-4 w-4 shrink-0 text-amber-600" />
                 </button>

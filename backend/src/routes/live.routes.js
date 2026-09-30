@@ -44,16 +44,23 @@ async function suggestNextPlayer(auctionId) {
     [auctionId]
   );
 
+  // Normalise flow type value (handle legacy names)
   const rawFlow = auction?.auction_flow_type || "GENERAL";
-  const flow = rawFlow === "CATEGORY_WISE_UNSOLD_AFTER_EACH_CATEGORY" ? "CATEGORY_UNSOLD_AFTER_EACH_CATEGORY" : rawFlow === "CATEGORY_WISE_UNSOLD_AT_END" ? "CATEGORY_UNSOLD_AT_END" : rawFlow;
-  let playerRows = [];
+  const flow =
+    rawFlow === "CATEGORY_WISE_UNSOLD_AFTER_EACH_CATEGORY" ? "CATEGORY_UNSOLD_AFTER_EACH_CATEGORY"
+    : rawFlow === "CATEGORY_WISE_UNSOLD_AT_END"             ? "CATEGORY_UNSOLD_AT_END"
+    : rawFlow;
+
+  let playerRows  = [];
   let nextCategory = state?.current_category || null;
 
+  // Helper: pick a random available player matching extra WHERE clause
   async function pick(whereSql, params) {
     const [rows] = await pool.query(
-      `SELECT id, player_name, category, player_role, base_price, status, auction_round, photo_url
+      `SELECT id, serial_number, player_name, category, player_role, base_price, status, auction_round, photo_url
        FROM players
        WHERE auction_id = ? ${whereSql}
+         AND COALESCE(is_deleted, 0) = 0
        ORDER BY RAND()
        LIMIT 1`,
       [auctionId, ...params]
@@ -61,67 +68,143 @@ async function suggestNextPlayer(auctionId) {
     return rows;
   }
 
-  // Get ordered categories
+  // Get ordered categories list
   const [categories] = await pool.query(
     `SELECT category_name FROM auction_categories WHERE auction_id = ? AND status = 'ACTIVE' ORDER BY display_order ASC, id ASC`,
     [auctionId]
   );
   const categoryList = categories.map(c => c.category_name);
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // GENERAL / GENERAL_UNSOLD_AT_END
+  //   Loop: AVAILABLE first, then UNSOLD in a continuous cycle.
+  //   Unsold players keep coming back until everyone is sold.
+  // ─────────────────────────────────────────────────────────────────────────
   if (flow === "GENERAL" || flow === "GENERAL_UNSOLD_AT_END") {
+    // 1. Any AVAILABLE player
     playerRows = await pick(`AND status = 'AVAILABLE'`, []);
-    if (playerRows.length === 0) playerRows = await pick(`AND status = 'UNSOLD'`, []);
-  } else if (flow === "CATEGORY_UNSOLD_AT_END") {
-    // 1. Try current category MAIN
-    if (nextCategory) playerRows = await pick(`AND status = 'AVAILABLE' AND category = ?`, [nextCategory]);
-    // 2. Try next categories MAIN
-    if (playerRows.length === 0) {
-      for (const cat of categoryList) {
-        playerRows = await pick(`AND status = 'AVAILABLE' AND category = ?`, [cat]);
-        if (playerRows.length > 0) {
-          nextCategory = cat;
-          break;
-        }
-      }
-    }
-    // 3. Try UNSOLD for all (it's UNSOLD_AT_END, so we don't care about category order here, but let's try to stick to order if possible, or just random)
+    // 2. No AVAILABLE left → loop in UNSOLD players non-stop
     if (playerRows.length === 0) {
       playerRows = await pick(`AND status = 'UNSOLD'`, []);
-      if (playerRows.length > 0) {
-        nextCategory = playerRows[0].category; // keep track
-      }
     }
-  } else {
-    // CATEGORY_UNSOLD_AFTER_EACH_CATEGORY
-    // 1. Try current category MAIN
-    if (nextCategory) playerRows = await pick(`AND status = 'AVAILABLE' AND category = ?`, [nextCategory]);
-    // 2. Try current category UNSOLD
-    if (nextCategory && playerRows.length === 0) playerRows = await pick(`AND status = 'UNSOLD' AND category = ?`, [nextCategory]);
-    
-    // 3. Move to next category
-    if (playerRows.length === 0) {
-      for (const cat of categoryList) {
-        playerRows = await pick(`AND status = 'AVAILABLE' AND category = ?`, [cat]);
-        if (playerRows.length === 0) playerRows = await pick(`AND status = 'UNSOLD' AND category = ?`, [cat]);
-        if (playerRows.length > 0) {
-          nextCategory = cat;
-          break;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // CATEGORY_UNSOLD_AT_END
+  //   Round 1 (MAIN): Go through all categories in order, AVAILABLE only.
+  //   Round 2+ (UNSOLD): After all AVAILABLE are gone, cycle through all
+  //   categories in order again with UNSOLD players. Repeat until everyone sold.
+  // ─────────────────────────────────────────────────────────────────────────
+  else if (flow === "CATEGORY_UNSOLD_AT_END") {
+    // Check if there are still any AVAILABLE players left across all categories
+    const [[{ availableCount }]] = await pool.query(
+      `SELECT COUNT(*) AS availableCount FROM players
+       WHERE auction_id = ? AND status = 'AVAILABLE' AND COALESCE(is_deleted, 0) = 0`,
+      [auctionId]
+    );
+
+    if (availableCount > 0) {
+      // MAIN round: serve categories in order
+      // Try current category first, then walk the ordered list
+      if (nextCategory) {
+        playerRows = await pick(`AND status = 'AVAILABLE' AND category = ?`, [nextCategory]);
+      }
+      if (playerRows.length === 0) {
+        for (const cat of categoryList) {
+          playerRows = await pick(`AND status = 'AVAILABLE' AND category = ?`, [cat]);
+          if (playerRows.length > 0) { nextCategory = cat; break; }
         }
+      }
+      // Fallback: any AVAILABLE regardless of category (shouldn't normally hit)
+      if (playerRows.length === 0) {
+        playerRows = await pick(`AND status = 'AVAILABLE'`, []);
+        if (playerRows.length > 0) nextCategory = playerRows[0].category;
+      }
+    } else {
+      // UNSOLD round: all AVAILABLE are gone → loop unsold in category order
+      // Try current category first, then ordered list, then restart from Cat 1
+      if (nextCategory) {
+        playerRows = await pick(`AND status = 'UNSOLD' AND category = ?`, [nextCategory]);
+      }
+      if (playerRows.length === 0) {
+        // Walk the ordered category list
+        const startIdx = nextCategory ? categoryList.indexOf(nextCategory) : -1;
+        const orderedTail = startIdx >= 0
+          ? [...categoryList.slice(startIdx + 1), ...categoryList.slice(0, startIdx + 1)]
+          : categoryList;
+        for (const cat of orderedTail) {
+          playerRows = await pick(`AND status = 'UNSOLD' AND category = ?`, [cat]);
+          if (playerRows.length > 0) { nextCategory = cat; break; }
+        }
+      }
+      // Final fallback: any UNSOLD regardless of category
+      if (playerRows.length === 0) {
+        playerRows = await pick(`AND status = 'UNSOLD'`, []);
+        if (playerRows.length > 0) nextCategory = playerRows[0].category;
       }
     }
   }
 
-  const suggested = playerRows[0] || null;
-  const currentRound = suggested?.status === 'UNSOLD' ? 'UNSOLD' : 'MAIN';
+  // ─────────────────────────────────────────────────────────────────────────
+  // CATEGORY_UNSOLD_AFTER_EACH_CATEGORY
+  //   Within each category: AVAILABLE first → UNSOLD for that category.
+  //   After current category is fully done → move to next category.
+  //   After all categories are done (all players are UNSOLD or SOLD) →
+  //   restart from Cat 1 with remaining UNSOLD, looping until all sold.
+  // ─────────────────────────────────────────────────────────────────────────
+  else {
+    // Step 1: Try current category – AVAILABLE then UNSOLD
+    if (nextCategory) {
+      playerRows = await pick(`AND status = 'AVAILABLE' AND category = ?`, [nextCategory]);
+      if (playerRows.length === 0) {
+        playerRows = await pick(`AND status = 'UNSOLD' AND category = ?`, [nextCategory]);
+      }
+    }
+
+    // Step 2: Current category exhausted → walk remaining categories in order
+    if (playerRows.length === 0) {
+      const startIdx = nextCategory ? categoryList.indexOf(nextCategory) : -1;
+      // Try from the next category onwards, then wrap to start
+      const orderedTail = startIdx >= 0
+        ? [...categoryList.slice(startIdx + 1), ...categoryList.slice(0, startIdx + 1)]
+        : categoryList;
+
+      for (const cat of orderedTail) {
+        playerRows = await pick(`AND status = 'AVAILABLE' AND category = ?`, [cat]);
+        if (playerRows.length === 0) {
+          playerRows = await pick(`AND status = 'UNSOLD' AND category = ?`, [cat]);
+        }
+        if (playerRows.length > 0) { nextCategory = cat; break; }
+      }
+    }
+
+    // Step 3: All categories exhausted in this pass → start a fresh loop
+    //          from Cat 1 with UNSOLD players (all AVAILABLE are gone)
+    if (playerRows.length === 0) {
+      for (const cat of categoryList) {
+        playerRows = await pick(`AND status = 'UNSOLD' AND category = ?`, [cat]);
+        if (playerRows.length > 0) { nextCategory = cat; break; }
+      }
+    }
+  }
+
+  const suggested    = playerRows[0] || null;
+  const currentRound = suggested?.status === "UNSOLD" ? "UNSOLD" : "MAIN";
 
   await pool.query(
     `UPDATE auction_state
      SET suggested_player_id = ?,
-         selection_mode = COALESCE(?, selection_mode),
-         current_category = COALESCE(?, current_category),
-         current_round = ?
+         selection_mode       = COALESCE(?, selection_mode),
+         current_category     = COALESCE(?, current_category),
+         current_round        = ?
      WHERE auction_id = ?`,
-    [suggested?.id || null, auction?.next_player_selection_mode || "RANDOM_WITH_ADMIN_CONFIRM", nextCategory, currentRound, auctionId]
+    [
+      suggested?.id || null,
+      auction?.next_player_selection_mode || "RANDOM_WITH_ADMIN_CONFIRM",
+      nextCategory,
+      currentRound,
+      auctionId,
+    ]
   );
 
   return suggested;
