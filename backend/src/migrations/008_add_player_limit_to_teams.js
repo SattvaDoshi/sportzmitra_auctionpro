@@ -1,10 +1,8 @@
 const pool = require('../config/db');
 
-async function up() {
-  const promisePool = pool.promise();
-
+async function up(pool) {
   // Check if player_limit column exists in teams table
-  const [columns] = await promisePool.query(`
+  const [columns] = await pool.query(`
     SELECT COUNT(*) as count 
     FROM INFORMATION_SCHEMA.COLUMNS 
     WHERE table_schema = DATABASE() 
@@ -14,7 +12,7 @@ async function up() {
 
   if (columns[0].count === 0) {
     console.log('Adding player_limit column to teams table...');
-    await promisePool.query(`
+    await pool.query(`
       ALTER TABLE teams 
       ADD COLUMN player_limit INT DEFAULT NULL AFTER remaining_purse
     `);
@@ -24,11 +22,9 @@ async function up() {
   }
 }
 
-async function down() {
-  const promisePool = pool.promise();
-
+async function down(pool) {
   // Check if player_limit column exists
-  const [columns] = await promisePool.query(`
+  const [columns] = await pool.query(`
     SELECT COUNT(*) as count 
     FROM INFORMATION_SCHEMA.COLUMNS 
     WHERE table_schema = DATABASE() 
@@ -38,7 +34,7 @@ async function down() {
 
   if (columns[0].count > 0) {
     console.log('Removing player_limit column from teams table...');
-    await promisePool.query(`
+    await pool.query(`
       ALTER TABLE teams 
       DROP COLUMN player_limit
     `);
