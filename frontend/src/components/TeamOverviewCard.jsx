@@ -1,27 +1,45 @@
-import { Shield, Users, Coins, Wallet, Gavel, Eye } from "lucide-react";
+import { Shield, ArrowRight, Download, Gavel } from "lucide-react";
 import TeamLogo from "../components/ui/TeamLogo";
 
 /**
  * TeamOverviewCard.jsx
  *
- * Single source of truth for the "team overview" card design (logo, owner,
- * purse/spent/balance, max bid/squad/slots left, budget utilization bar).
- * Used by PublicDashboardView (grid + pagination) and PublicLiveView
- * (horizontal carousel) so both pages render the exact same card layout.
+ * Single source of truth for the team overview card, used by
+ * PublicDashboardView (grid) and PublicLiveView (carousel).
+ *
+ * Layout: header (logo, name, owner, View Squad, Download) followed by
+ * PURSE / SPENT / BALANCE columns (each with a ring and a progress bar)
+ * plus a MAX BID panel.
  *
  * `variant`:
- *  - "light" (default): plain white card, colored border only — used on the
- *    public dashboard.
- *  - "tinted": each card's background is tinted with its own accent color
- *    (pink / green / navy / orange / blue / purple), matching the original
- *    Auction Arena live-view mockup. Pass `palette` to control the colors
- *    (defaults to LIVE_TEAM_ACCENTS below).
+ *  - "light" (default): white card with a faint accent tint, colored border.
+ *  - "tinted": card background tinted with its accent color (live view).
+ *
+ * Optional props: `onViewTeam(team)` shows "View Squad",
+ * `onDownload(team)` shows the download button,
+ * `showMaxBid` (default true) toggles the Max Bid panel.
  */
 
-// Two-tone palette used by the (white) dashboard cards.
+// Two-tone palette used by the dashboard cards (pink / green alternate).
 export const TEAM_CARD_ACCENTS = [
-  { ring: "border-[#EC008C]/25", text: "text-[#EC008C]", bar: "bg-[#EC008C]", barTrack: "bg-[#EC008C]/15" },
-  { ring: "border-[#8DC63F]/30", text: "text-[#629221]", bar: "bg-[#8DC63F]", barTrack: "bg-[#8DC63F]/15" },
+  {
+    ring: "border-[#EC008C]/30",
+    text: "text-[#EC008C]",
+    bar: "bg-[#EC008C]",
+    barTrack: "bg-[#EC008C]/15",
+    soft: "bg-[#EC008C]/[0.03]",
+    btnBorder: "border-[#EC008C]/30",
+    btnText: "text-[#EC008C]",
+  },
+  {
+    ring: "border-[#8DC63F]/40",
+    text: "text-[#629221]",
+    bar: "bg-[#8DC63F]",
+    barTrack: "bg-[#8DC63F]/15",
+    soft: "bg-[#8DC63F]/[0.04]",
+    btnBorder: "border-[#8DC63F]/40",
+    btnText: "text-[#629221]",
+  },
 ];
 
 // Six-color rotating palette used by the tinted live-view cards.
@@ -34,15 +52,20 @@ export const LIVE_TEAM_ACCENTS = [
   { ring: "border-[#9333ea]/30", text: "text-[#9333ea]", bar: "bg-[#9333ea]", tint: "bg-[#9333ea]/10" },
 ];
 
+const COLORS = {
+  purse: "#EC008C",
+  spent: "#F59E0B",
+  balance: "#22C55E",
+  maxBid: "#EC008C",
+};
+
 function money(value) {
   return Number(value || 0).toLocaleString("en-IN");
 }
 
 /**
- * Normalizes team metrics across the slightly different field names used by
- * the dashboard endpoint (total_purse/used_amount/max_bid_allowed) and the
- * live-view endpoint (remaining_purse/remaining_budget), so this card works
- * unmodified with data from either page.
+ * Normalizes team metrics across the different field names used by the
+ * dashboard endpoint and the live-view endpoint.
  */
 export function computeTeamMetrics(t, auction, soldPlayers = []) {
   const totalPurse = Number(t.total_purse ?? t.starting_purse ?? t.total_budget ?? 0);
@@ -61,8 +84,100 @@ export function computeTeamMetrics(t, auction, soldPlayers = []) {
       : soldPlayers.filter((p) => String(p.sold_team_id) === String(t.id)).length;
   const slotsLeft = Math.max(0, squadLimit - squadSize);
   const usedPct = totalPurse > 0 ? Math.min(100, Math.round((spent / totalPurse) * 100)) : 0;
+  const balancePct = totalPurse > 0 ? Math.max(0, 100 - usedPct) : 0;
+  const squadPct = squadLimit > 0 ? Math.min(100, Math.round((squadSize / squadLimit) * 100)) : 0;
 
-  return { totalPurse, spent, balance, maxBid, ownerName, squadSize, slotsLeft, usedPct };
+  return {
+    totalPurse,
+    spent,
+    balance,
+    maxBid,
+    ownerName,
+    squadSize,
+    squadLimit,
+    slotsLeft,
+    usedPct,
+    balancePct,
+    squadPct,
+  };
+}
+
+/* Circular percentage ring */
+function Ring({ pct = 0, color }) {
+  const r = 16;
+  const c = 2 * Math.PI * r;
+  const safe = Math.max(0, Math.min(100, pct));
+  return (
+    <div className="relative h-8 w-8 shrink-0 sm:h-11 sm:w-11">
+      <svg viewBox="0 0 40 40" className="h-full w-full -rotate-90">
+        <circle cx="20" cy="20" r={r} fill="none" stroke={color} strokeOpacity="0.15" strokeWidth="4" />
+        <circle
+          cx="20"
+          cy="20"
+          r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={c - (c * safe) / 100}
+          className="transition-all"
+        />
+      </svg>
+      <span className="absolute inset-0 flex items-center justify-center text-[8px] font-black text-slate-800 sm:text-[10px]">
+        {safe}%
+      </span>
+    </div>
+  );
+}
+
+/* One metric column: value + label, ring, and a bar underneath */
+function Metric({ label, value, pct, ringPct, color, valueClass = "text-slate-900", labelClass }) {
+  return (
+    <div
+      className="min-w-0 rounded-xl border bg-white p-1.5 shadow-sm sm:p-2.5"
+      style={{ borderColor: `${color}40` }}
+    >
+      <div className="flex items-center justify-between gap-1">
+        <div className="min-w-0">
+          <div className={`truncate text-xs font-black sm:text-base ${valueClass}`}>&#8377;{money(value)}</div>
+          <div className={`text-[9px] font-black uppercase tracking-wide sm:text-[11px] ${labelClass}`}>{label}</div>
+        </div>
+        <Ring pct={ringPct} color={color} />
+      </div>
+      <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full" style={{ backgroundColor: `${color}26` }}>
+        <div
+          className="h-full rounded-full transition-all"
+          style={{ width: `${Math.max(0, Math.min(100, pct))}%`, backgroundColor: color }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* Max Bid panel.
+   - mobile (<sm):   full-width strip under the 3 metrics (label left, value right)
+   - tablet (sm-lg): 4th column with a left divider
+   - laptop (lg-xl): cards are narrow (2 per row), so back to the strip
+   - desktop (xl+):  4th column again */
+function MaxBid({ value, color, labelClass }) {
+  return (
+    <div
+      className="col-span-3 flex items-center justify-between gap-2 rounded-xl border bg-white p-2 shadow-sm sm:p-2.5
+                 sm:col-span-1 sm:flex-col sm:items-start sm:justify-center
+                 lg:col-span-3 lg:flex-row lg:items-center lg:justify-between
+                 xl:col-span-1 xl:flex-col xl:items-start xl:justify-center"
+      style={{ borderColor: `${color}40` }}
+    >
+      <div className={`flex items-center gap-1 text-[9px] font-black uppercase tracking-wide sm:text-[11px] ${labelClass}`}>
+        <Gavel size={13} style={{ color }} className="shrink-0" />
+        <span>Max Bid</span>
+      </div>
+      <div className="truncate text-base font-black leading-none sm:text-xl xl:text-2xl" style={{ color }}>
+        &#8377;{money(value)}
+      </div>
+    </div>
+  );
 }
 
 export default function TeamOverviewCard({
@@ -71,14 +186,16 @@ export default function TeamOverviewCard({
   soldPlayers = [],
   accentIndex = 0,
   onViewTeam,
+  onDownload,
   variant = "light",
   palette,
+  showMaxBid = true,
   className = "",
 }) {
   const isTinted = variant === "tinted";
   const activePalette = palette || (isTinted ? LIVE_TEAM_ACCENTS : TEAM_CARD_ACCENTS);
   const accent = activePalette[accentIndex % activePalette.length];
-  const { totalPurse, spent, balance, maxBid, ownerName, squadSize, slotsLeft, usedPct } = computeTeamMetrics(
+  const { totalPurse, spent, balance, maxBid, ownerName, usedPct, balancePct, squadPct } = computeTeamMetrics(
     team,
     auction,
     soldPlayers
@@ -87,133 +204,111 @@ export default function TeamOverviewCard({
   const theme = isTinted
     ? {
         card: `border ${accent.ring} ${accent.tint || "bg-white"} shadow-sm hover:shadow-md`,
-        headerBorder: "border-black/5",
         name: "text-white",
         owner: "text-white/60",
-        statBox: "bg-white/70 border-white/60",
-        statLabel: "text-slate-500",
-        statValue: "text-slate-900",
-        balanceValue: "text-emerald-600",
-        slotsValue: "text-blue-600",
-        trackBase: "bg-white/60",
-        watermark: "opacity-[0.08]",
-        viewBtn: "bg-white/90 text-slate-700 hover:bg-white hover:text-slate-900 border border-black/5",
+        label: "text-slate-500",
         logoRing: `border-2 ${accent.ring} bg-white`,
+        btn: "border-black/5 bg-white/90 text-slate-700 hover:bg-white",
+        iconBtn: "border-black/5 bg-white/90 text-slate-700 hover:bg-white",
+        watermark: "opacity-[0.08]",
       }
     : {
-        card: `border ${accent.ring} bg-white shadow-sm hover:shadow-md`,
-        headerBorder: "border-slate-100",
+        card: `border ${accent.ring} ${accent.soft || "bg-white"} shadow-sm hover:shadow-md`,
         name: "text-slate-900",
-        owner: "text-slate-400",
-        statBox: "bg-slate-50 border-slate-100",
-        statLabel: "text-slate-400",
-        statValue: "text-slate-900",
-        balanceValue: "text-emerald-600",
-        slotsValue: "text-blue-600",
-        trackBase: accent.barTrack || "bg-slate-100",
-        watermark: "opacity-[0.06]",
-        viewBtn: "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 border border-transparent",
+        owner: "text-slate-500",
+        label: "text-slate-500",
         logoRing: `border-2 ${accent.ring} bg-slate-900`,
+        btn: `${accent.btnBorder || "border-slate-200"} bg-white ${accent.btnText || "text-slate-700"} hover:bg-slate-50`,
+        iconBtn: "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+        watermark: "opacity-[0.06]",
       };
 
+  const teamName = team.team_name || team.name;
+
   return (
-    <div className={`group relative overflow-hidden rounded-2xl p-4 transition ${theme.card} ${className}`}>
+    <div className={`group relative overflow-hidden rounded-2xl p-3 transition sm:p-4 ${theme.card} ${className}`}>
       {/* Watermark icon */}
       <Shield
-        size={110}
+        size={130}
         strokeWidth={1}
-        className={`pointer-events-none absolute -right-4 -top-2 ${theme.watermark} ${accent.text}`}
+        className={`pointer-events-none absolute right-1/4 -top-4 ${theme.watermark} ${accent.text}`}
       />
 
-      {/* Header: Logo, Name & Owner — full name, no truncation (wraps if
-          long). The "View Squad" button gets its own row below so it never
-          competes with the name for width. */}
-      <div className={`relative border-b pb-3 ${theme.headerBorder}`}>
-        <div className="flex items-center gap-3">
-          <div
-            className={`flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full text-white font-black shadow-md ${theme.logoRing}`}
+      {/* Header: logo, name/owner, actions */}
+      <div className="relative flex items-center gap-2.5 sm:gap-3">
+        <div
+          className={`flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full font-black text-white shadow-md sm:h-14 sm:w-14 ${theme.logoRing}`}
+        >
+          {team.logo_url ? <TeamLogo team={team} size="sm" /> : <Shield size={22} className={accent.text} />}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <h3
+            className={`break-words text-sm font-black italic leading-tight tracking-tight sm:text-lg ${theme.name}`}
           >
-            {team.logo_url ? (
-              <TeamLogo team={team} size="sm" />
-            ) : (
-              <Shield size={22} className={accent.text} />
-            )}
-          </div>
-          <div className="min-w-0 flex-1">
-            <h3 className={`break-words text-base font-black italic uppercase leading-tight tracking-tight ${theme.name}`}>
-              {team.team_name || team.name}
-            </h3>
-            {ownerName && <p className={`truncate text-xs font-semibold ${theme.owner}`}>{ownerName}</p>}
-          </div>
+            {teamName}
+          </h3>
+          {ownerName && <p className={`truncate text-xs font-medium sm:text-sm ${theme.owner}`}>{ownerName}</p>}
         </div>
 
-        {onViewTeam && (
-          <button
-            onClick={() => onViewTeam(team)}
-            className={`mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-[10px] font-black uppercase tracking-wider shadow-sm transition hover:scale-[1.02] active:scale-95 ${theme.viewBtn}`}
-            title={`View ${team.team_name || team.name || "team"}'s squad`}
-          >
-            <Eye size={12} />
-            <span>View Squad</span>
-          </button>
-        )}
-      </div>
-
-      {/* Financial Metrics Row */}
-      <div className={`relative mt-3 grid grid-cols-3 gap-1.5 rounded-xl border p-2 text-center ${theme.statBox}`}>
-        <div>
-          <span className={`flex items-center justify-center gap-1 text-[9px] font-black uppercase ${theme.statLabel}`}>
-            <Coins size={10} className="text-pink-500" /> PURSE
-          </span>
-          <span className={`text-xs font-black ${theme.statValue}`}>&#8377;{money(totalPurse)}</span>
-        </div>
-        <div>
-          <span className={`flex items-center justify-center gap-1 text-[9px] font-black uppercase ${theme.statLabel}`}>
-            <Coins size={10} className="text-orange-500" /> SPENT
-          </span>
-          <span className={`text-xs font-black ${theme.statValue}`}>&#8377;{money(spent)}</span>
-        </div>
-        <div>
-          <span className={`flex items-center justify-center gap-1 text-[9px] font-black uppercase ${theme.statLabel}`}>
-            <Wallet size={10} className="text-emerald-500" /> BALANCE
-          </span>
-          <span className={`text-xs font-black ${theme.balanceValue}`}>&#8377;{money(balance)}</span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {onViewTeam && (
+            <button
+              type="button"
+              onClick={() => onViewTeam(team)}
+              title={`View ${teamName || "team"}'s squad`}
+              className={`flex items-center gap-1 rounded-lg border px-2 py-1.5 text-[10px] font-black transition active:scale-95 sm:gap-1.5 sm:px-3 sm:py-2 sm:text-xs ${theme.btn}`}
+            >
+              <span>View Squad</span>
+              <ArrowRight size={13} className={isTinted ? "" : accent.text} />
+            </button>
+          )}
+          {onDownload && (
+            <button
+              type="button"
+              onClick={() => onDownload(team)}
+              title={`Download ${teamName || "team"} squad`}
+              aria-label="Download squad"
+              className={`flex h-7 w-7 items-center justify-center rounded-lg border transition active:scale-95 sm:h-9 sm:w-9 ${theme.iconBtn}`}
+            >
+              <Download size={15} />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Squad Metrics Row */}
-      <div className={`relative mt-2 grid grid-cols-3 gap-1.5 rounded-xl border p-2 text-center ${theme.statBox}`}>
-        <div>
-          <span className={`flex items-center justify-center gap-1 text-[9px] font-black uppercase ${theme.statLabel}`}>
-            <Gavel size={10} className="text-rose-500" /> MAX BID
-          </span>
-          <span className={`text-xs font-black ${theme.statValue}`}>&#8377;{money(maxBid)}</span>
-        </div>
-        <div>
-          <span className={`flex items-center justify-center gap-1 text-[9px] font-black uppercase ${theme.statLabel}`}>
-            <Users size={10} className="text-purple-500" /> SQUAD
-          </span>
-          <span className={`text-xs font-black ${theme.statValue}`}>{squadSize}</span>
-        </div>
-        <div>
-          <span className={`flex items-center justify-center gap-1 text-[9px] font-black uppercase ${theme.statLabel}`}>
-            <Users size={10} className="text-blue-500" /> SLOTS LEFT
-          </span>
-          <span className={`text-xs font-black ${theme.slotsValue}`}>{slotsLeft}</span>
-        </div>
-      </div>
-
-      {/* Budget Utilization */}
-      <div className="relative mt-3">
-        <div className="mb-1 flex items-center justify-between">
-          <span className={`text-[9px] font-black uppercase tracking-wider ${theme.statLabel}`}>
-            Budget Utilization
-          </span>
-          <span className={`text-[10px] font-black ${accent.text}`}>{usedPct}% USED</span>
-        </div>
-        <div className={`h-1.5 w-full overflow-hidden rounded-full ${theme.trackBase}`}>
-          <div className={`h-full rounded-full ${accent.bar} transition-all`} style={{ width: `${usedPct}%` }} />
-        </div>
+      {/* Metrics: PURSE / SPENT / BALANCE / MAX BID */}
+      <div
+        className={`relative mt-3 grid grid-cols-3 gap-1.5 sm:mt-4 sm:gap-3 ${
+          showMaxBid ? "sm:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4" : ""
+        }`}
+      >
+        <Metric
+          label="Purse"
+          value={totalPurse}
+          pct={100}
+          ringPct={squadPct}
+          color={COLORS.purse}
+          labelClass={theme.label}
+        />
+        <Metric
+          label="Spent"
+          value={spent}
+          pct={usedPct}
+          ringPct={usedPct}
+          color={COLORS.spent}
+          labelClass={theme.label}
+        />
+        <Metric
+          label="Balance"
+          value={balance}
+          pct={balancePct}
+          ringPct={balancePct}
+          color={COLORS.balance}
+          valueClass="text-emerald-600"
+          labelClass={theme.label}
+        />
+        {showMaxBid && <MaxBid value={maxBid} color={COLORS.maxBid} labelClass={theme.label} />}
       </div>
     </div>
   );

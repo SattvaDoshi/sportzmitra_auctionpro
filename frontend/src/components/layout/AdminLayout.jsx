@@ -48,7 +48,7 @@ function useNavItems({ auctionId, organizationId, publicSlug }) {
     }
 
     return [
-      { label: "Dashboard", icon: LayoutDashboard, to: "/dashboard", scope: "global" },
+      // { label: "Dashboard", icon: LayoutDashboard, to: "/dashboard", scope: "global" },
       { label: "Organizations", icon: Building2, to: "/select-organization", scope: "global" },
       {
         label: "Auctions",

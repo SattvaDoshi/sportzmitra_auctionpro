@@ -1,25 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import {
-  ArrowLeft,
-  Eye,
   Search,
   Trophy,
-  Users,
-  CheckCircle,
-  XCircle,
   Clock,
-  Wallet,
+  XCircle,
   ChevronLeft,
   ChevronRight,
   Shield,
-  Gavel,
   UserCheck,
   UserMinus,
 } from "lucide-react";
 import api from "../api/api";
 import { getImageUrl } from "../utils/imageUrl";
 import TeamOverviewCard from "../components/TeamOverviewCard";
+import AuctionHero from "../components/AuctionHero";
 import TeamLogo from "../components/ui/TeamLogo";
 import socket from "../utils/socket";
 
@@ -199,10 +194,6 @@ export default function PublicDashboardView() {
 
   const { auction, dashboardSummary = {} } = data;
 
-  const sponsorUrls = auction?.sponsor_logo_urls 
-    ? auction.sponsor_logo_urls.split(",").map((s) => s.trim()).filter(Boolean) 
-    : [];
-
   const tabDefs = [
     { key: "teams", label: "TEAMS OVERVIEW", Icon: Shield, count: null },
     { key: "sold", label: "SOLD PLAYERS", Icon: UserCheck, count: data.soldPlayers?.length || 0 },
@@ -216,104 +207,17 @@ export default function PublicDashboardView() {
       style={{ backgroundImage: "url('/publicDashboard.png')" }}
     >
       <div className="mx-auto max-w-7xl">
-        {/* Header Section */}
-        <header className="mb-5 sm:mb-6 flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            {auction?.auction_logo_url ? (
-              <img src={auction.auction_logo_url} alt="Auction Logo" className="hidden xs:flex h-14 w-auto object-contain drop-shadow-sm" />
-            ) : (
-              <div className="hidden xs:flex h-11 w-11 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-2xl bg-white/70 shadow-sm">
-                <Gavel size={22} className="text-[#EC008C]" />
-              </div>
-            )}
-            <div>
-              <h1 className="text-xl sm:text-2xl lg:text-3xl font-black italic uppercase leading-tight tracking-tight text-slate-900">
-                {auction?.auction_name || <span className="text-[#EC008C]">Auction</span>}
-              </h1>
-              <p className="mt-0.5 text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-400">
-                REAL-TIME TEAM ROSTERS &bull; PLAYER BIDS &bull; CATEGORY &bull; ANALYTICS
-              </p>
-            </div>
-          </div>
-
-          {sponsorUrls.length > 0 ? (
-            <div className="hidden md:flex items-center gap-4">
-              {sponsorUrls.map((url, i) => (
-                <img key={i} src={url} alt="Sponsor" className="h-10 w-auto object-contain drop-shadow-sm mix-blend-multiply" />
-              ))}
-            </div>
-          ) : (
-            <p
-              className="hidden md:block -rotate-2 select-none font-serif text-base italic leading-tight text-[#EC008C]/90"
-              style={{ fontFamily: "'Brush Script MT', cursive" }}
-            >
-              Players
-              <br />
-              Passion
-              <br />
-              Bigger Dreams
-            </p>
-          )}
-
-          <div className="flex w-full items-center gap-3 sm:w-auto">
-            <span className="flex items-center gap-2 rounded-full bg-white px-3 sm:px-3.5 py-1.5 text-[11px] sm:text-xs font-bold text-slate-700 shadow-sm border border-slate-200">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              <Eye size={14} className="text-emerald-500" />
-              <span>{viewerCount} LIVE VIEWERS</span>
-            </span>
-
-            <Link
-              to={`/live/${publicSlug}`}
-              className="flex items-center gap-2 rounded-xl bg-[#8DC63F] hover:bg-[#7ab332] px-3.5 sm:px-4 py-2 text-[11px] sm:text-xs font-black italic uppercase text-white shadow-sm transition active:scale-95"
-            >
-              <ArrowLeft size={16} /> LIVE ARENA
-            </Link>
-          </div>
-        </header>
-
-        {/* Analytics Summary — hidden on mobile, table-only view is kept clean there */}
-        <section className="hidden sm:grid mb-5 sm:mb-6 grid-cols-3 gap-3 lg:grid-cols-5">
-          <StatCard
-            label="PLAYERS SOLD"
-            value={dashboardSummary.sold_players || 0}
-            icon={<CheckCircle className="h-5 w-5 text-emerald-500" />}
-            badgeBg="bg-emerald-50"
-            borderColor="border-emerald-200"
-          />
-          <StatCard
-            label="PENDING"
-            value={dashboardSummary.pending_players || 0}
-            icon={<Clock className="h-5 w-5 text-amber-500" />}
-            badgeBg="bg-amber-50"
-            borderColor="border-amber-200"
-          />
-          <StatCard
-            label="UNSOLD QUEUE"
-            value={dashboardSummary.unsold_players || 0}
-            icon={<XCircle className="h-5 w-5 text-rose-500" />}
-            badgeBg="bg-rose-50"
-            borderColor="border-rose-200"
-          />
-          <StatCard
-            label="TOTAL BALANCE"
-            value={`\u20B9${money(dashboardSummary.total_balance)}`}
-            valueColor="text-emerald-600"
-            icon={<Wallet className="h-5 w-5 text-emerald-500" />}
-            badgeBg="bg-emerald-50"
-            borderColor="border-emerald-200"
-          />
-          <StatCard
-            label="HIGHEST BID"
-            value={`\u20B9${money(dashboardSummary.highest_bid)}`}
-            icon={<Trophy className="h-5 w-5 text-orange-500" />}
-            badgeBg="bg-orange-50"
-            borderColor="border-orange-200"
-            className="col-span-1"
-          />
-        </section>
+        {/* Header + current player/bid hero + analytics cards */}
+        <AuctionHero
+          auction={auction}
+          state={data.state}
+          dashboardSummary={dashboardSummary}
+          viewerCount={viewerCount}
+          publicSlug={publicSlug}
+        />
 
         {/* Main Dashboard Container */}
-        <section className="rounded-2xl border border-slate-200/80 bg-white p-3 sm:p-4 shadow-sm">
+        <section className="mt-4 sm:mt-5 rounded-2xl border border-slate-200/80 bg-white p-3 sm:p-4 shadow-sm">
           {/* Navigation Bar & Controls */}
           <div className="mb-5 sm:mb-6 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
             {/* View Tabs — 3 fit at a time on mobile; pink arrow scrolls to the rest */}
@@ -451,27 +355,35 @@ export default function PublicDashboardView() {
   );
 }
 
-function StatCard({ label, value, valueColor = "text-slate-900", icon, badgeBg, borderColor = "border-slate-200/80", className = "" }) {
-  return (
-    <div className={`flex items-center justify-between rounded-2xl bg-white p-3 sm:p-4 shadow-sm border ${borderColor} ${className}`}>
-      <div className="min-w-0">
-        <span className="block text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1 truncate">
-          {label}
-        </span>
-        <span className={`text-lg sm:text-2xl font-black ${valueColor}`}>{value}</span>
-      </div>
-      <div className={`shrink-0 rounded-full p-2 sm:p-2.5 ${badgeBg}`}>{icon}</div>
-    </div>
-  );
+/* Responsive grid view for Teams: 1 col mobile, 2 cols tablet, 3 on laptop, 4 on large desktop.
+   Card design lives in TeamOverviewCard.jsx so PublicLiveView renders the identical card. */
+/* Downloads a team's sold players as a CSV */
+function downloadTeamCsv(team, soldPlayers = []) {
+  const players = soldPlayers.filter((p) => String(p.sold_team_id) === String(team.id));
+  const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const rows = [
+    ["Player", "Category", "Role", "Sold Price"],
+    ...players.map((p) => [p.player_name, p.category, p.player_role, p.sold_price]),
+  ];
+  const csv = rows.map((r) => r.map(esc).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${(team.team_name || team.name || "team").replace(/\s+/g, "_")}_squad.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
-/* Responsive grid view for Teams: 1 col mobile, 2 cols tablet, 3 on laptop, 4 on large desktop.
+/* Responsive grid view for Teams: 1 col mobile/tablet, 2 cols on laptop and up.
    Card design lives in TeamOverviewCard.jsx so PublicLiveView renders the identical card. */
 function TeamsGrid({ rows = [], auction, soldPlayers = [], onViewTeam }) {
   if (!rows.length) return <Empty text="No teams found matching search criteria" />;
 
   return (
-    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       {rows.map((t, idx) => (
         <TeamOverviewCard
           key={t.id}
@@ -480,6 +392,7 @@ function TeamsGrid({ rows = [], auction, soldPlayers = [], onViewTeam }) {
           soldPlayers={soldPlayers}
           accentIndex={idx}
           onViewTeam={onViewTeam}
+          onDownload={(team) => downloadTeamCsv(team, soldPlayers)}
         />
       ))}
     </div>
