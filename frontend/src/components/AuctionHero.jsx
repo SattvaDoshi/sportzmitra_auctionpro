@@ -33,18 +33,15 @@ function PlayerPhoto({ url, name }) {
   );
 }
 
-/* Matches / Runs / Wickets / Strike Rate chips */
-function StatChips({ chips, className = "" }) {
+/* Rich text player info */
+function PlayerInfoBox({ htmlContent, className = "" }) {
+  if (!htmlContent) return null;
   return (
-    <div className={`grid w-full grid-cols-2 gap-2 sm:grid-cols-4 ${className}`}>
-      {chips.map(({ label, Icon, value }) => (
-        <div key={label} className="rounded-xl border border-white/15 bg-black/35 px-3 py-2 text-white backdrop-blur-md">
-          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-white/80">
-            <Icon size={13} className="text-[#ff5cb8]" /> {label}
-          </div>
-          <div className="aa-display mt-0.5 text-xl leading-none">{value}</div>
-        </div>
-      ))}
+    <div className={`w-full rounded-xl border border-white/15 bg-black/35 p-4 text-white backdrop-blur-md ${className}`}>
+      <div 
+        className="rich-text-content max-w-none"
+        dangerouslySetInnerHTML={{ __html: htmlContent }} 
+      />
     </div>
   );
 }
@@ -57,18 +54,46 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
   const jersey = state?.jersey_number ?? state?.player_number;
   const role = state?.player_role || state?.batting_style || "";
 
-  const chips = [
-    { label: "Matches", Icon: Swords, value: pick(state, ["matches", "total_matches"]) },
-    { label: "Runs", Icon: BarChart3, value: pick(state, ["runs", "total_runs"]) },
-    { label: "Wickets", Icon: Target, value: pick(state, ["wickets", "total_wickets"]) },
-    { label: "Strike Rate", Icon: Star, value: pick(state, ["strike_rate", "strikeRate"]) },
-  ];
+  const playerInfoHtml = state?.player_info;
 
   return (
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Anton&display=swap');
         .aa-display { font-family: 'Anton', 'Archivo Black', ui-sans-serif, system-ui, sans-serif; }
+        
+        .rich-text-content {
+          text-align: center;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+        }
+        .rich-text-content table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 0.5rem 0;
+        }
+        .rich-text-content th, .rich-text-content td {
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          padding: 8px 12px;
+          text-align: center;
+        }
+        .rich-text-content th {
+          background-color: rgba(255, 255, 255, 0.1);
+          font-weight: 700;
+        }
+        .rich-text-content ul, .rich-text-content ol {
+          text-align: left;
+          padding-left: 1.5rem;
+          margin: 0.5rem 0;
+          list-style: disc;
+        }
+        .rich-text-content h1, .rich-text-content h2, .rich-text-content h3 {
+          font-weight: bold;
+          margin: 0.5rem 0;
+        }
       `}</style>
 
       {/* ============ HEADER ============ */}
@@ -139,8 +164,8 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
             )}
           </div>
 
-          {/* Tablet / laptop chips (hidden on mobile) */}
-          <StatChips chips={chips} className="mt-4 hidden md:grid" />
+          {/* Tablet / laptop player info (hidden on mobile) */}
+          <PlayerInfoBox htmlContent={playerInfoHtml} className="mt-4 hidden md:block" />
         </div>
 
         {/* Bid panel */}
@@ -151,6 +176,12 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
           <div className="aa-display mt-1 text-[clamp(52px,8vw,84px)] leading-none text-[#ff1f9f] [text-shadow:0_0_28px_rgba(236,0,140,.45)]">
             ₹{money(currentBid)}
           </div>
+          {state?.highest_team_name && (
+            <div className="mt-2 flex flex-col">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-white/60">Highest Bidder</div>
+              <div className="text-sm font-extrabold text-[#8DC63F] uppercase">{state.highest_team_name}</div>
+            </div>
+          )}
           <div className="mt-3 border-t border-white/15 pt-3">
             <div className="text-[10px] font-bold uppercase tracking-wider text-white/60">Base Price</div>
             <div className="aa-display text-2xl">₹{money(basePrice)}</div>
@@ -163,8 +194,8 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
           </Link>
         </div>
 
-        {/* Mobile-only chips: below the bid panel */}
-        <StatChips chips={chips} className="order-4 md:hidden" />
+        {/* Mobile-only info: below the bid panel */}
+        <PlayerInfoBox htmlContent={playerInfoHtml} className="order-4 md:hidden" />
       </section>
     </>
   );

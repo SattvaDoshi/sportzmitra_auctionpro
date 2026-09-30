@@ -2,6 +2,8 @@ import { Download, Edit3, History, ImagePlus, Plus, Save, Search, Upload, Wrench
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import AdminLayout from "../components/layout/AdminLayout";
 import StatusBadge from "../components/ui/StatusBadge";
 import api from "../api/api";
@@ -70,6 +72,7 @@ export default function PlayersPage() {
   const [error, setError] = useState("");
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [selectedPlayer, setSelectedPlayer] = useState(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   async function load() {
     try {
@@ -113,13 +116,128 @@ export default function PlayersPage() {
 
   function downloadTemplate() {
     const rows = [
-      { "Serial Number": "1", "Player Name": "Rahul Jain", Mobile: "9111111111", Email: "", Category: "A", Role: "ALL_ROUNDER", "Base Price": 500, "T-shirt Size": "XL", Age: 31, Area: "Bhayander", "Previous Team": "", "Photo URL": "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?q=80&w=300&auto=format&fit=crop" },
-      { "Serial Number": "2", "Player Name": "Priya Sharma", Mobile: "9222222222", Email: "", Category: "B", Role: "BATSMAN", "Base Price": 300, "T-shirt Size": "M", Age: 25, Area: "Andheri", "Previous Team": "", "Photo URL": "https://drive.google.com/file/d/YOUR_FILE_ID_HERE/view?usp=sharing" },
+      { "Serial Number": "1", "Player Name": "Rahul Jain", Mobile: "9111111111", Email: "", Category: "A", Role: "ALL_ROUNDER", "Base Price": 500, "T-shirt Size": "XL", Age: 31, Area: "Bhayander", "Previous Team": "", "Photo URL": "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?q=80&w=300&auto=format&fit=crop", "Rich Text Info": "<h2>Stats</h2><ul><li>Matches: 10</li><li>Runs: 500</li></ul>" },
+      { "Serial Number": "2", "Player Name": "Priya Sharma", Mobile: "9222222222", Email: "", Category: "B", Role: "BATSMAN", "Base Price": 300, "T-shirt Size": "M", Age: 25, Area: "Andheri", "Previous Team": "", "Photo URL": "https://drive.google.com/file/d/YOUR_FILE_ID_HERE/view?usp=sharing", "Rich Text Info": "<h2>Stats</h2><ul><li>Matches: 5</li></ul>" },
     ];
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(rows);
     XLSX.utils.book_append_sheet(wb, ws, "Players");
     XLSX.writeFile(wb, "sportzmitra-players-template.xlsx");
+  }
+
+  async function downloadPlayersPdf(categoryWise = false) {
+    setDownloadingPdf(true);
+    try {
+      const doc = new jsPDF();
+      let isFirstPage = true;
+
+      // Group players by category if categoryWise is true
+      const groups = {};
+      if (categoryWise) {
+        players.forEach(p => {
+          const cat = p.category || "Uncategorized";
+          if (!groups[cat]) groups[cat] = [];
+          groups[cat].push(p);
+        });
+      } else {
+        groups["All Players"] = players;
+      }
+
+      for (const [groupName, groupPlayers] of Object.entries(groups)) {
+        if (!isFirstPage) {
+          doc.addPage();
+        }
+        isFirstPage = false;
+
+        doc.setFontSize(22);
+        doc.setFont("helvetica", "bold");
+        doc.text(categoryWise ? `Category: ${groupName}` : (auction?.auction_name || "Players Registry"), 14, 22);
+
+        doc.setFontSize(12);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Total Players: ${groupPlayers.length}`, 14, 32);
+
+        const tableData = [];
+        const imagePromises = [];
+
+        for (const p of groupPlayers) {
+          let base64Img = null;
+          if (p.photo_url) {
+            const promise = new Promise((resolve) => {
+              const img = new Image();
+              img.crossOrigin = "Anonymous";
+              img.onload = () => {
+                const canvas = document.createElement("canvas");
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(img, 0, 0);
+                try {
+                  base64Img = canvas.toDataURL("image/jpeg", 0.7);
+                } catch (e) {}
+                resolve();
+              };
+              img.onerror = () => resolve();
+              img.src = p.photo_url;
+            });
+            imagePromises.push(promise);
+          } else {
+            imagePromises.push(Promise.resolve());
+          }
+
+          tableData.push({
+            player: p,
+            getBase64: () => base64Img
+          });
+        }
+
+        await Promise.all(imagePromises);
+
+        const rows = tableData.map(item => ({
+          photoPlaceholder: '',
+          name: item.player.player_name,
+          role: item.player.player_role || '-',
+          status: item.player.status,
+          price: `Rs. ${Number(item.player.base_price || 0).toLocaleString("en-IN")}`,
+          base64: item.getBase64()
+        }));
+
+        autoTable(doc, {
+          startY: 40,
+          columns: [
+            { header: 'Photo', dataKey: 'photoPlaceholder' },
+            { header: 'Name', dataKey: 'name' },
+            { header: 'Role', dataKey: 'role' },
+            { header: 'Status', dataKey: 'status' },
+            { header: 'Base Price', dataKey: 'price' }
+          ],
+          body: rows,
+          headStyles: { fillColor: [236, 0, 140], textColor: 255, fontStyle: 'bold' },
+          bodyStyles: { minCellHeight: 25, valign: 'middle' },
+          columnStyles: { 0: { cellWidth: 25 } },
+          didDrawCell: (data) => {
+            if (data.section === 'body' && data.column.dataKey === 'photoPlaceholder') {
+              const b64 = data.row.raw.base64;
+              if (b64) {
+                try {
+                  doc.addImage(b64, 'JPEG', data.cell.x + 2, data.cell.y + 2, 20, 20);
+                } catch (e) {}
+              } else {
+                doc.setFontSize(10);
+                doc.text("No Photo", data.cell.x + 5, data.cell.y + 14);
+              }
+            }
+          }
+        });
+      }
+
+      doc.save(`${(auction?.auction_name || "Players").replace(/\s+/g, '_')}_${categoryWise ? 'Category_Wise' : 'All'}.pdf`);
+    } catch (err) {
+      console.error("PDF download failed", err);
+      alert("Failed to generate PDF.");
+    } finally {
+      setDownloadingPdf(false);
+    }
   }
 
   function openAdd() { setEditingPlayer(null); setForm(emptyPlayer); setShowForm(true); }
@@ -249,7 +367,25 @@ export default function PlayersPage() {
             {/* Quick actions — equal 3-column grid on mobile so labels stay
                 on one line and all three buttons match height; reverts to
                 the original inline row from sm: up. */}
-            <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center flex-wrap">
+              <button
+                onClick={() => downloadPlayersPdf(false)}
+                disabled={downloadingPdf || players.length === 0}
+                className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-2.5 py-2.5 text-[11px] font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:gap-2 sm:px-4 sm:text-sm disabled:opacity-50"
+              >
+                <Download size={15} className="shrink-0 sm:hidden" />
+                <Download size={16} className="hidden shrink-0 sm:block" />
+                {downloadingPdf ? "Gen..." : "PDF (All)"}
+              </button>
+              <button
+                onClick={() => downloadPlayersPdf(true)}
+                disabled={downloadingPdf || players.length === 0}
+                className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-2.5 py-2.5 text-[11px] font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:gap-2 sm:px-4 sm:text-sm disabled:opacity-50"
+              >
+                <Download size={15} className="shrink-0 sm:hidden" />
+                <Download size={16} className="hidden shrink-0 sm:block" />
+                {downloadingPdf ? "Gen..." : "PDF (Category)"}
+              </button>
               <button
                 onClick={openAdd}
                 className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-emerald-600 px-2.5 py-2.5 text-[11px] font-semibold text-white transition hover:bg-emerald-700 sm:gap-2 sm:px-4 sm:text-sm"
@@ -540,6 +676,18 @@ function PlayerForm({ title, form, setForm, onSubmit, onClose, onPhotoUpload, up
         <Input label="Age" type="number" value={form.age} onChange={(v) => set("age", v)} />
         <Input label="Area" value={form.area} onChange={(v) => set("area", v)} />
         <Input label="Previous Team" value={form.previous_team} onChange={(v) => set("previous_team", v)} />
+      </div>
+
+      <div className="mt-4">
+        <label className="block">
+          <span className="mb-1 block text-xs font-semibold text-slate-600">Rich Text Info (HTML)</span>
+          <textarea
+            value={form.player_info || ""}
+            onChange={(e) => set("player_info", e.target.value)}
+            placeholder="<h2>Stats</h2><ul><li>Matches: 10</li></ul>"
+            className="w-full min-h-[120px] rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm font-medium text-slate-900 outline-none placeholder:font-normal placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-500/15"
+          />
+        </label>
       </div>
 
       <div className="mt-6 flex justify-end gap-2">

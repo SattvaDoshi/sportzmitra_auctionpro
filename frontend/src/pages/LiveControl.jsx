@@ -63,6 +63,9 @@ function teamSearchText(team) {
 
 function playerSearchText(player) {
   return [
+    player?.serial_number,
+    String(player?.id),
+    player?.player_number,
     player?.player_name,
     player?.name,
     player?.mobile,

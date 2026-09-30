@@ -290,8 +290,8 @@ router.post("/", authMiddleware, requireRole("AUCTION_ADMIN", "SUPER_ADMIN"), as
     const [result] = await conn.query(
       `INSERT INTO players
        (auction_id, organization_id, org_player_id, player_name, player_mobile, normalized_mobile, player_email,
-        category, player_role, base_price, tshirt_size, age, area, previous_team, photo_url, registration_source, status, serial_number)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MANUAL', 'AVAILABLE', ?)`,
+        category, player_role, base_price, tshirt_size, age, area, previous_team, photo_url, registration_source, status, serial_number, player_info)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MANUAL', 'AVAILABLE', ?, ?)`,
       [
         auction_id,
         organizationId,
@@ -309,6 +309,7 @@ router.post("/", authMiddleware, requireRole("AUCTION_ADMIN", "SUPER_ADMIN"), as
         clean(previous_team),
         latestPhotoUrl,
         clean(serial_number),
+        clean(req.body.player_info),
       ]
     );
 
@@ -379,7 +380,7 @@ router.put("/:playerId", authMiddleware, requireRole("AUCTION_ADMIN", "SUPER_ADM
       `UPDATE players
        SET organization_id = ?, org_player_id = ?, player_name = ?, player_mobile = ?, normalized_mobile = ?,
            player_email = ?, category = ?, player_role = ?, base_price = ?, tshirt_size = ?, age = ?,
-           area = ?, previous_team = ?, photo_url = ?, status = ?, serial_number = ?
+           area = ?, previous_team = ?, photo_url = ?, status = ?, serial_number = ?, player_info = ?
        WHERE id = ?`,
       [
         organizationId,
@@ -398,6 +399,7 @@ router.put("/:playerId", authMiddleware, requireRole("AUCTION_ADMIN", "SUPER_ADM
         latestPhotoUrl,
         status || existing.status || "AVAILABLE",
         clean(serial_number),
+        clean(req.body.player_info),
         playerId,
       ]
     );
@@ -453,6 +455,7 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
         const age = row.Age || row.age || null;
         const area = clean(row.Area || row.area);
         const previousTeam = clean(row["Previous Team"] || row.previous_team);
+        const playerInfo = clean(row["Player Info"] || row["Rich Text Info"] || row.player_info);
         const serialNumber = clean(row["Serial Number"] || row["Serial No"] || row.serial_number || row.id || row.Id);
         const rawPhotoUrl = clean(row["Photo URL"] || row["Photo"] || row.photo_url || row.photo);
         let photoUrl = rawPhotoUrl;
@@ -495,8 +498,8 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
           `INSERT INTO players
            (auction_id, organization_id, org_player_id, player_name, player_mobile, normalized_mobile, player_email,
             category, player_role, base_price, tshirt_size, age, area, previous_team, photo_url,
-            registration_source, import_batch_id, status, serial_number)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'EXCEL', ?, 'AVAILABLE', ?)`,
+            registration_source, import_batch_id, status, serial_number, player_info)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'EXCEL', ?, 'AVAILABLE', ?, ?)`,
           [
             auctionId,
             organizationId,
@@ -515,6 +518,7 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
             latestPhotoUrl,
             importBatchId,
             serialNumber,
+            playerInfo,
           ]
         );
 

@@ -136,7 +136,7 @@ async function calculateMaxBids(pool, auctionId, currentPlayer = null) {
     }
 
     const rawMaxBid = remainingPurse - minReserve + currentPlayerBonusBack;
-    const maxBid = Math.max(0, Math.floor(rawMaxBid));
+    const maxBid = Math.min(remainingPurse, Math.max(0, Math.floor(rawMaxBid)));
 
     return {
       team_id: tid,

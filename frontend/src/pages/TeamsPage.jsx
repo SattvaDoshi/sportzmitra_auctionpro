@@ -17,6 +17,8 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import AdminLayout from "../components/layout/AdminLayout";
 import LogoPicker from "../components/ui/LogoPicker";
 import TeamLogo from "../components/ui/TeamLogo";
@@ -66,6 +68,7 @@ export default function TeamsPage() {
   const [recentTeams, setRecentTeams] = useState([]);
   const [form, setForm] = useState(emptyTeam);
   const [editingTeam, setEditingTeam] = useState(null);
+  const [viewingTeam, setViewingTeam] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
@@ -73,6 +76,7 @@ export default function TeamsPage() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedTeamIds, setSelectedTeamIds] = useState([]);
   const [pageLoading, setPageLoading] = useState(true);
+  const [downloadingAll, setDownloadingAll] = useState(false);
   const [maxBidMap, setMaxBidMap] = useState({});
 
   async function load() {
@@ -210,6 +214,114 @@ export default function TeamsPage() {
     XLSX.utils.book_append_sheet(wb, ws, "Teams");
     XLSX.writeFile(wb, "sportzmitra-teams-template.xlsx");
   }
+
+  const downloadAllTeamsPDF = async () => {
+    setDownloadingAll(true);
+    try {
+      const res = await api.get(`/players/auction/${auctionId}`);
+      const allPlayers = res.data || [];
+      
+      const doc = new jsPDF();
+      let isFirstPage = true;
+      
+      for (const team of teams) {
+        if (!isFirstPage) {
+          doc.addPage();
+        }
+        isFirstPage = false;
+        
+        const teamPlayers = allPlayers.filter(p => Number(p.sold_team_id) === Number(team.id) && p.status === 'SOLD');
+        
+        doc.setFontSize(22);
+        doc.setFont("helvetica", "bold");
+        doc.text(team.team_name, 14, 22);
+        
+        doc.setFontSize(12);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Total Players: ${teamPlayers.length} | Purse Remaining: Rs. ${Number(team.remaining_purse || 0).toLocaleString("en-IN")}`, 14, 32);
+        
+        const tableData = [];
+        const imagePromises = [];
+        
+        for (const p of teamPlayers) {
+          let base64Img = null;
+          if (p.photo_url) {
+            const promise = new Promise((resolve) => {
+              const img = new Image();
+              img.crossOrigin = "Anonymous";
+              img.onload = () => {
+                const canvas = document.createElement("canvas");
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(img, 0, 0);
+                try {
+                  base64Img = canvas.toDataURL("image/jpeg", 0.7);
+                } catch (e) { }
+                resolve();
+              };
+              img.onerror = () => resolve();
+              img.src = p.photo_url;
+            });
+            imagePromises.push(promise);
+          } else {
+            imagePromises.push(Promise.resolve());
+          }
+          
+          tableData.push({
+            player: p,
+            getBase64: () => base64Img
+          });
+        }
+        
+        await Promise.all(imagePromises);
+        
+        const rows = tableData.map(item => ({
+          photoPlaceholder: '',
+          name: item.player.player_name,
+          category: item.player.category || '-',
+          role: item.player.player_role || '-',
+          price: `Rs. ${Number(item.player.sold_price || 0).toLocaleString("en-IN")}`,
+          base64: item.getBase64()
+        }));
+        
+        autoTable(doc, {
+          startY: 40,
+          columns: [
+            { header: 'Photo', dataKey: 'photoPlaceholder' },
+            { header: 'Name', dataKey: 'name' },
+            { header: 'Category', dataKey: 'category' },
+            { header: 'Role', dataKey: 'role' },
+            { header: 'Price', dataKey: 'price' }
+          ],
+          body: rows,
+          headStyles: { fillColor: [236, 0, 140], textColor: 255, fontStyle: 'bold' },
+          bodyStyles: { minCellHeight: 25, valign: 'middle' },
+          columnStyles: { 0: { cellWidth: 25 } },
+          didDrawCell: (data) => {
+            if (data.section === 'body' && data.column.dataKey === 'photoPlaceholder') {
+              const b64 = data.row.raw.base64;
+              if (b64) {
+                try {
+                  doc.addImage(b64, 'JPEG', data.cell.x + 2, data.cell.y + 2, 20, 20);
+                } catch (e) {}
+              } else {
+                doc.setFontSize(10);
+                doc.text("No Photo", data.cell.x + 5, data.cell.y + 14);
+              }
+            }
+          }
+        });
+      }
+      
+      doc.save(`${(auction?.auction_name || "Auction").replace(/\s+/g, '_')}_All_Teams_Rosters.pdf`);
+    } catch (err) {
+      console.error("PDF generation error", err);
+      alert("Could not generate PDF");
+    } finally {
+      setDownloadingAll(false);
+    }
+  };
 
   async function saveTeam(event) {
     event.preventDefault();
@@ -350,6 +462,16 @@ export default function TeamsPage() {
                   className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#EC008C] px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-pink-200 transition hover:bg-[#d4007d] active:scale-95"
                 >
                   <Plus size={16} /> Add Team
+                </button>
+
+                <button
+                  onClick={downloadAllTeamsPDF}
+                  disabled={downloadingAll || teams.length === 0}
+                  title="Download All"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-emerald-200 transition hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  <Download size={16} />
+                  {downloadingAll ? "Generating..." : "Download All"}
                 </button>
 
                 <button
@@ -587,9 +709,7 @@ export default function TeamsPage() {
 
                     {/* View Players Button */}
                     <button
-                      onClick={() =>
-                        navigate(`/admin/auctions/${auctionId}/players?teamId=${team.id}`)
-                      }
+                      onClick={() => setViewingTeam(team)}
                       className="mt-4 inline-flex items-center gap-1 text-xs font-bold text-[#EC008C] transition hover:text-[#d4007d]"
                     >
                       View Players
@@ -619,6 +739,10 @@ export default function TeamsPage() {
           )}
 
       </div>
+
+      {viewingTeam && (
+        <TeamPlayersModal team={viewingTeam} auctionId={auctionId} onClose={() => setViewingTeam(null)} />
+      )}
     </AdminLayout>
   );
 }
@@ -637,6 +761,197 @@ function StatCard({ icon: Icon, label, value, tint }) {
           {label}
         </span>
       </span>
+    </div>
+  );
+}
+
+function TeamPlayersModal({ team, auctionId, onClose }) {
+  const [players, setPlayers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
+
+  useEffect(() => {
+    async function loadPlayers() {
+      try {
+        const res = await api.get(`/players/auction/${auctionId}`);
+        const teamPlayers = (res.data || []).filter(p => Number(p.sold_team_id) === Number(team.id) && p.status === 'SOLD');
+        setPlayers(teamPlayers);
+      } catch (err) {
+        console.error("Failed to load players", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadPlayers();
+  }, [auctionId, team.id]);
+
+  const downloadPDF = async () => {
+    setDownloading(true);
+    try {
+      const doc = new jsPDF();
+      
+      doc.setFontSize(22);
+      doc.setFont("helvetica", "bold");
+      doc.text(team.team_name, 14, 22);
+      
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Total Players: ${players.length} | Purse Remaining: Rs. ${Number(team.remaining_purse || 0).toLocaleString("en-IN")}`, 14, 32);
+      
+      const tableData = [];
+      const imagePromises = [];
+      
+      for (const p of players) {
+        let base64Img = null;
+        if (p.photo_url) {
+          // Attempt to convert image to base64
+          const promise = new Promise((resolve) => {
+            const img = new Image();
+            img.crossOrigin = "Anonymous";
+            img.onload = () => {
+              const canvas = document.createElement("canvas");
+              canvas.width = img.width;
+              canvas.height = img.height;
+              const ctx = canvas.getContext("2d");
+              ctx.drawImage(img, 0, 0);
+              try {
+                base64Img = canvas.toDataURL("image/jpeg", 0.7);
+              } catch (e) {
+                // Tainted canvas
+              }
+              resolve();
+            };
+            img.onerror = () => resolve();
+            img.src = p.photo_url;
+          });
+          imagePromises.push(promise);
+        } else {
+          imagePromises.push(Promise.resolve());
+        }
+        
+        tableData.push({
+          player: p,
+          getBase64: () => base64Img
+        });
+      }
+      
+      await Promise.all(imagePromises);
+      
+      const rows = tableData.map(item => ({
+        photoPlaceholder: '',
+        name: item.player.player_name,
+        category: item.player.category || '-',
+        role: item.player.player_role || '-',
+        price: `Rs. ${Number(item.player.sold_price || 0).toLocaleString("en-IN")}`,
+        base64: item.getBase64()
+      }));
+      
+      autoTable(doc, {
+        startY: 40,
+        columns: [
+          { header: 'Photo', dataKey: 'photoPlaceholder' },
+          { header: 'Name', dataKey: 'name' },
+          { header: 'Category', dataKey: 'category' },
+          { header: 'Role', dataKey: 'role' },
+          { header: 'Price', dataKey: 'price' }
+        ],
+        body: rows,
+        headStyles: { fillColor: [236, 0, 140], textColor: 255, fontStyle: 'bold' },
+        bodyStyles: { minCellHeight: 25, valign: 'middle' },
+        columnStyles: {
+          0: { cellWidth: 25 },
+        },
+        didDrawCell: (data) => {
+          if (data.section === 'body' && data.column.dataKey === 'photoPlaceholder') {
+            const b64 = data.row.raw.base64;
+            if (b64) {
+              try {
+                doc.addImage(b64, 'JPEG', data.cell.x + 2, data.cell.y + 2, 20, 20);
+              } catch (e) {
+                // Ignore if error
+              }
+            } else {
+              // Draw placeholder if no photo
+              doc.setFontSize(10);
+              doc.text("No Photo", data.cell.x + 5, data.cell.y + 14);
+            }
+          }
+        }
+      });
+      
+      doc.save(`${team.team_name.replace(/\s+/g, '_')}_Roster.pdf`);
+    } catch (err) {
+      console.error("PDF generation error", err);
+      alert("Could not generate PDF");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-900/50 backdrop-blur-sm">
+      <div className="relative w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between border-b border-slate-100 p-6 bg-slate-50">
+          <div className="flex items-center gap-4">
+            <TeamLogo url={team.logo_url} name={team.team_name} size="md" />
+            <div>
+              <h3 className="text-xl font-black text-slate-900">{team.team_name}</h3>
+              <p className="text-sm font-semibold text-slate-500">
+                Purse: ₹{Number(team.remaining_purse || 0).toLocaleString("en-IN")} left | Players: {players.length}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={downloadPDF} 
+              disabled={loading || downloading || players.length === 0}
+              className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+            >
+              <Download size={16} />
+              {downloading ? "Generating..." : "Download PDF"}
+            </button>
+            <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition">
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto p-6 bg-white">
+          {loading ? (
+            <div className="flex py-12 justify-center text-slate-400 font-semibold">Loading players...</div>
+          ) : players.length === 0 ? (
+            <div className="flex py-12 flex-col items-center justify-center text-slate-400">
+              <Users size={32} className="mb-2 opacity-30" />
+              <p className="font-semibold">No players bought yet.</p>
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {players.map(p => (
+                <div key={p.id} className="flex items-center gap-3 rounded-xl border border-slate-100 p-3 shadow-sm hover:shadow-md transition bg-slate-50/50">
+                  <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-white border border-slate-200">
+                    {p.photo_url ? (
+                      <img src={p.photo_url} alt={p.player_name} className="h-full w-full object-cover object-top" />
+                    ) : (
+                      <div className="flex h-full items-center justify-center font-bold text-slate-300">
+                        {p.player_name?.charAt(0)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-bold text-slate-900">{p.player_name}</div>
+                    <div className="flex items-center gap-2 text-[10px] font-semibold text-slate-500">
+                      <span className="rounded bg-white border border-slate-200 px-1.5 py-0.5">{p.player_role || p.category}</span>
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="text-xs font-black text-emerald-600">₹{Number(p.sold_price).toLocaleString("en-IN")}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
