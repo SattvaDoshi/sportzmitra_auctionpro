@@ -97,6 +97,9 @@ export default function PublicDashboardView() {
 
     function handleReconnect() {
       loadInitialSnapshot();
+      if (auctionIdRef.current) {
+        socket.emit("joinPublicAuction", { auctionId: auctionIdRef.current });
+      }
     }
 
     const events = [
