@@ -18,7 +18,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import AdminLayout from "../components/layout/AdminLayout";
 import LogoPicker from "../components/ui/LogoPicker";
 import TeamLogo from "../components/ui/TeamLogo";
@@ -58,6 +57,417 @@ function initials(teamName = "TEAM") {
     .filter(Boolean);
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
   return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
+}
+
+/* ---------------------------------------------------------------------- */
+/* PDF design helpers — fixed A4 layout, so it looks identical on every    */
+/* device. Background image lives at /public/pdf-bg.png.                    */
+/* ---------------------------------------------------------------------- */
+const PDF_W = 210;
+const PDF_H = 297;
+const PDF_MARGIN = 10;
+const PDF_GAP = 5;
+const PDF_COLS = 2;
+const PDF_CARD_W = (PDF_W - PDF_MARGIN * 2 - PDF_GAP * (PDF_COLS - 1)) / PDF_COLS;
+const PDF_CARD_H = 40;
+const PDF_PHOTO_W = 27;
+const PDF_PHOTO_H = 34;
+
+const PDF_PINK = [219, 39, 119];
+const PDF_PINK_SOFT = [253, 232, 243];
+const PDF_PINK_FAINT = [253, 242, 248];
+const PDF_BORDER = [251, 207, 232];
+const PDF_DARK = [15, 23, 42];
+const PDF_MUTED = [100, 116, 139];
+const PDF_WHITE = [255, 255, 255];
+
+const PDF_STATUS_STYLES = {
+  SOLD: { fg: [22, 163, 74], bg: [220, 252, 231] },
+  IN_AUCTION: { fg: [217, 119, 6], bg: [255, 237, 213] },
+  AVAILABLE: { fg: [37, 99, 235], bg: [219, 234, 254] },
+  UNSOLD: { fg: [100, 116, 139], bg: [226, 232, 240] },
+  FINAL_UNSOLD: { fg: [185, 28, 28], bg: [254, 226, 226] },
+  WITHDRAWN: { fg: [185, 28, 28], bg: [254, 226, 226] },
+};
+
+/* ---------- Image loading ---------- */
+function pdfLoadImgEl(src, cors) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    if (cors) img.crossOrigin = "Anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+// Google Drive share links don't work as <img> sources; convert them to a direct thumbnail URL
+function pdfNormalizeUrl(url) {
+  if (!url) return "";
+  const u = String(url).trim();
+  if (/drive\.google\.com|docs\.google\.com/.test(u)) {
+    const m = u.match(/\/d\/([\w-]+)/) || u.match(/[?&]id=([\w-]+)/);
+    if (m) return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w600`;
+  }
+  return u;
+}
+
+function pdfRenderCover(img, ratio, maxW, { fill, quality, round }) {
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  let sw = iw;
+  let sh = ih;
+  if (iw / ih > ratio) sw = ih * ratio;
+  else sh = iw / ratio;
+  const sx = (iw - sw) / 2;
+  const sy = (ih - sh) * 0.15; // bias toward the top so faces stay in frame
+  const outW = Math.max(1, Math.min(maxW, Math.round(sw)));
+  const outH = Math.max(1, Math.round(outW / ratio));
+  const canvas = document.createElement("canvas");
+  canvas.width = outW;
+  canvas.height = outH;
+  const ctx = canvas.getContext("2d");
+  if (round) {
+    const r = outW * 0.075;
+    ctx.beginPath();
+    ctx.moveTo(r, 0);
+    ctx.arcTo(outW, 0, outW, outH, r);
+    ctx.arcTo(outW, outH, 0, outH, r);
+    ctx.arcTo(0, outH, 0, 0, r);
+    ctx.arcTo(0, 0, outW, 0, r);
+    ctx.closePath();
+    ctx.clip();
+  } else {
+    ctx.fillStyle = fill;
+    ctx.fillRect(0, 0, outW, outH);
+  }
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
+  return round ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", quality);
+}
+
+// Center-crops an image to `ratio` and returns { data, type } (or null on failure).
+// Tries a normal CORS load first, then a fresh fetch() as a fallback (fixes images
+// the browser cached earlier without CORS headers).
+async function loadImageCover(url, ratio, maxW, { fill = "#ffffff", quality = 0.8, round = false } = {}) {
+  const src = pdfNormalizeUrl(url);
+  if (!src) return null;
+  let objectUrl = null;
+  try {
+    let img = await pdfLoadImgEl(src, true);
+    if (!img) {
+      try {
+        const res = await fetch(src, { mode: "cors", cache: "no-store" });
+        if (res.ok) {
+          objectUrl = URL.createObjectURL(await res.blob());
+          img = await pdfLoadImgEl(objectUrl, false);
+        }
+      } catch (e) {}
+    }
+    if (!img) return null;
+    const data = pdfRenderCover(img, ratio, maxW, { fill, quality, round });
+    return { data, type: round ? "PNG" : "JPEG" };
+  } catch (e) {
+    return null;
+  } finally {
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+  }
+}
+
+/* ---------- Drawing primitives ---------- */
+function pdfTruncate(doc, text, maxW) {
+  let t = String(text ?? "");
+  if (doc.getTextWidth(t) <= maxW) return t;
+  while (t.length > 1 && doc.getTextWidth(`${t}...`) > maxW) t = t.slice(0, -1);
+  return `${t}...`;
+}
+
+function pdfPoly(doc, pts, style = "F") {
+  const segs = pts.slice(1).map((p, i) => [p[0] - pts[i][0], p[1] - pts[i][1]]);
+  doc.lines(segs, pts[0][0], pts[0][1], [1, 1], style, true);
+}
+
+function pdfRotRect(cx, cy, w, h, deg) {
+  const t = (deg * Math.PI) / 180;
+  const c = Math.cos(t);
+  const s = Math.sin(t);
+  return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(([x, y]) => [cx + x * c - y * s, cy + x * s + y * c]);
+}
+
+/* ---------- Vector icons (all centered on cx, cy and sized by s) ---------- */
+function iconUsers(doc, cx, cy, s, c) {
+  doc.setFillColor(...c);
+  doc.circle(cx - 0.18 * s, cy - 0.22 * s, 0.2 * s, "F");
+  doc.ellipse(cx - 0.18 * s, cy + 0.36 * s, 0.34 * s, 0.22 * s, "F");
+  doc.circle(cx + 0.32 * s, cy - 0.12 * s, 0.16 * s, "F");
+  doc.ellipse(cx + 0.32 * s, cy + 0.4 * s, 0.24 * s, 0.18 * s, "F");
+}
+
+function iconGavel(doc, cx, cy, s, c) {
+  doc.setFillColor(...c);
+  doc.setDrawColor(...c);
+  doc.setLineWidth(Math.max(0.3, 0.14 * s));
+  doc.line(cx + 0.02 * s, cy - 0.02 * s, cx - 0.4 * s, cy + 0.36 * s);
+  pdfPoly(doc, pdfRotRect(cx + 0.14 * s, cy - 0.2 * s, 0.72 * s, 0.32 * s, 45), "F");
+  doc.setLineWidth(Math.max(0.3, 0.16 * s));
+  doc.line(cx - 0.12 * s, cy + 0.52 * s, cx + 0.5 * s, cy + 0.52 * s);
+}
+
+function iconBall(doc, cx, cy, s, c) {
+  doc.setFillColor(...c);
+  doc.circle(cx, cy, 0.5 * s, "F");
+  doc.setDrawColor(...PDF_WHITE);
+  doc.setLineWidth(Math.max(0.2, 0.09 * s));
+  doc.lines([[0.34 * s, 0.14 * s, 0.34 * s, 0.46 * s, 0, 0.64 * s]], cx - 0.2 * s, cy - 0.32 * s, [1, 1], "S", false);
+}
+
+function iconBat(doc, cx, cy, s, c) {
+  doc.setFillColor(...c);
+  doc.setDrawColor(...c);
+  const ang = 40;
+  const t = (ang * Math.PI) / 180;
+  const bcx = cx - 0.06 * s;
+  const bcy = cy + 0.14 * s;
+  pdfPoly(doc, pdfRotRect(bcx, bcy, 0.4 * s, 0.78 * s, ang), "F");
+  const topX = bcx + Math.sin(t) * 0.39 * s;
+  const topY = bcy - Math.cos(t) * 0.39 * s;
+  doc.setLineWidth(Math.max(0.3, 0.12 * s));
+  doc.line(topX, topY, topX + Math.sin(t) * 0.28 * s, topY - Math.cos(t) * 0.28 * s);
+}
+
+function iconStumps(doc, cx, cy, s, c) {
+  doc.setDrawColor(...c);
+  doc.setLineWidth(Math.max(0.3, 0.13 * s));
+  [-0.3, 0, 0.3].forEach((dx) => doc.line(cx + dx * s, cy - 0.38 * s, cx + dx * s, cy + 0.5 * s));
+  doc.setLineWidth(Math.max(0.25, 0.1 * s));
+  doc.line(cx - 0.3 * s, cy - 0.5 * s, cx - 0.04 * s, cy - 0.5 * s);
+  doc.line(cx + 0.04 * s, cy - 0.5 * s, cx + 0.3 * s, cy - 0.5 * s);
+}
+
+function iconCoins(doc, cx, cy, s, c) {
+  doc.setFillColor(...c);
+  doc.setDrawColor(...PDF_WHITE);
+  doc.setLineWidth(Math.max(0.15, 0.07 * s));
+  [0.34, 0.04, -0.26].forEach((dy) => doc.ellipse(cx, cy + dy * s, 0.46 * s, 0.2 * s, "FD"));
+}
+
+function pdfRoleIcon(role) {
+  const r = String(role || "").toUpperCase();
+  if (r.includes("WICKET") || r.includes("KEEP") || /\bWK\b/.test(r)) return iconStumps;
+  if (r.includes("ALL")) return iconBall;
+  if (r.includes("BAT")) return iconBat;
+  return iconBall;
+}
+
+/* ---------- Pill / chip / card ---------- */
+// Rounded label with optional icon or status dot; text is vertically centered
+function pdfPill(doc, text, x, y, h, fg, bg, { alignRight = false, maxW = 60, icon = null, dot = false } = {}) {
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(6.5);
+  const pad = 2.6;
+  const lead = icon ? 3.6 : dot ? 2.6 : 0;
+  const label = pdfTruncate(doc, text, maxW - pad * 2 - lead);
+  const w = doc.getTextWidth(label) + pad * 2 + lead;
+  const px = alignRight ? x - w : x;
+  const my = y + h / 2;
+  doc.setFillColor(...bg);
+  doc.roundedRect(px, y, w, h, h / 2, h / 2, "F");
+  if (icon) icon(doc, px + pad + 1.4, my, 2.8, fg);
+  else if (dot) {
+    doc.setFillColor(...fg);
+    doc.circle(px + pad + 0.7, my, 0.7, "F");
+  }
+  doc.setTextColor(...fg);
+  doc.text(label, px + pad + lead, my, { baseline: "middle" });
+  return w;
+}
+
+function pdfDrawPageBackground(doc, bg) {
+  doc.setFillColor(255, 255, 255);
+  doc.rect(0, 0, PDF_W, PDF_H, "F");
+  if (bg) {
+    try { doc.addImage(bg.data, bg.type, 0, 0, PDF_W, PDF_H, "pdfbg", "FAST"); } catch (e) {}
+  }
+}
+
+
+function iconWallet(doc, cx, cy, s, c) {
+  doc.setFillColor(...c);
+  doc.roundedRect(cx - 0.5 * s, cy - 0.34 * s, 1.0 * s, 0.72 * s, 0.12 * s, 0.12 * s, "F");
+  doc.setFillColor(...PDF_WHITE);
+  doc.roundedRect(cx + 0.1 * s, cy - 0.06 * s, 0.4 * s, 0.26 * s, 0.06 * s, 0.06 * s, "F");
+  doc.setFillColor(...c);
+  doc.circle(cx + 0.25 * s, cy + 0.07 * s, 0.06 * s, "F");
+}
+
+// Page header for a team roster; returns the Y where cards should start
+function pdfDrawTeamHeader(doc, { full, teamName, total, purse }) {
+  doc.setFont("helvetica", "bold");
+
+  if (!full) {
+    let size = 14;
+    doc.setFontSize(size);
+    while (doc.getTextWidth(teamName) > PDF_W - PDF_MARGIN * 2 && size > 9) { size -= 1; doc.setFontSize(size); }
+    doc.setTextColor(...PDF_DARK);
+    doc.text(teamName, PDF_MARGIN, 17);
+    doc.setDrawColor(...PDF_PINK);
+    doc.setLineWidth(0.8);
+    doc.line(PDF_MARGIN, 20.5, PDF_MARGIN + 14, 20.5);
+    return 27;
+  }
+
+  const chipH = 18;
+  const chipY = 12;
+  const chip2W = 52;
+  const chip1W = 36;
+  const chip2X = PDF_W - PDF_MARGIN - chip2W;
+  const chip1X = chip2X - 3 - chip1W;
+
+  const titleMaxW = chip1X - PDF_MARGIN - 5;
+  const line2 = "Team Roster";
+  let size = 22;
+  doc.setFontSize(size);
+  while ((doc.getTextWidth(teamName) > titleMaxW || doc.getTextWidth(line2) > titleMaxW) && size > 12) {
+    size -= 1;
+    doc.setFontSize(size);
+  }
+  doc.setTextColor(...PDF_DARK);
+  doc.text(teamName, PDF_MARGIN, 21);
+  doc.setTextColor(...PDF_PINK);
+  doc.text(line2, PDF_MARGIN, 30);
+  doc.setDrawColor(...PDF_PINK);
+  doc.setLineWidth(0.8);
+  doc.line(PDF_MARGIN, 34, PDF_MARGIN + 18, 34);
+
+  [
+    [chip1X, chip1W, "Total Players", String(total), iconUsers],
+    [chip2X, chip2W, "Purse Remaining", purse, iconWallet],
+  ].forEach(([cx, cw, label, value, icon]) => {
+    const midY = chipY + chipH / 2;
+    doc.setFillColor(...PDF_WHITE);
+    doc.setDrawColor(...PDF_BORDER);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(cx, chipY, cw, chipH, 3.5, 3.5, "FD");
+    doc.setFillColor(...PDF_PINK_SOFT);
+    doc.circle(cx + 7, midY, 4.2, "F");
+    icon(doc, cx + 7, midY, 4.4, PDF_PINK);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(...PDF_MUTED);
+    doc.text(label, cx + 13.5, chipY + 6.5, { baseline: "middle" });
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(...PDF_PINK);
+    doc.text(pdfTruncate(doc, value, cw - 16), cx + 13.5, chipY + 12.2, { baseline: "middle" });
+  });
+
+  return 42;
+}
+
+// One sold player: photo, name, category, role and sold price
+function pdfDrawRosterCard(doc, player, photo, x, y) {
+  doc.setFillColor(...PDF_WHITE);
+  doc.setDrawColor(...PDF_BORDER);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(x, y, PDF_CARD_W, PDF_CARD_H, 3, 3, "FD");
+
+  const px = x + 3;
+  const py = y + 3;
+  doc.setFillColor(...PDF_PINK_SOFT);
+  doc.roundedRect(px, py, PDF_PHOTO_W, PDF_PHOTO_H, 2, 2, "F");
+  if (photo) {
+    try { doc.addImage(photo.data, photo.type, px, py, PDF_PHOTO_W, PDF_PHOTO_H, undefined, "FAST"); } catch (e) {}
+  } else {
+    const ini = String(player.player_name || "?").split(/\s+/).slice(0, 2).map((s) => s[0] || "").join("").toUpperCase();
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(15);
+    doc.setTextColor(...PDF_PINK);
+    doc.text(ini, px + PDF_PHOTO_W / 2, py + PDF_PHOTO_H / 2, { align: "center", baseline: "middle" });
+  }
+  doc.setDrawColor(...PDF_BORDER);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(px, py, PDF_PHOTO_W, PDF_PHOTO_H, 2, 2, "S");
+
+  const cx = px + PDF_PHOTO_W + 4;
+  const cw = x + PDF_CARD_W - 3 - cx;
+
+  // Category pill (top-right)
+  let catW = 0;
+  if (player.category) {
+    catW = pdfPill(doc, String(player.category), x + PDF_CARD_W - 3, y + 4, 5.5, [37, 99, 235], [219, 234, 254], { alignRight: true, maxW: 30 });
+  }
+
+  // Name
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(...PDF_DARK);
+  doc.text(pdfTruncate(doc, player.player_name || "", cw - catW - (catW ? 2 : 0)), cx, y + 6.75, { baseline: "middle" });
+
+  // Role pill (with role icon)
+  pdfPill(doc, player.player_role || "-", cx, y + 12, 5.5, PDF_PINK, PDF_PINK_SOFT, { maxW: cw, icon: pdfRoleIcon(player.player_role) });
+
+  // Sold price box
+  const boxY = y + 20.5;
+  const boxH = PDF_CARD_H - 20.5 - 3;
+  doc.setFillColor(...PDF_PINK_FAINT);
+  doc.roundedRect(cx, boxY, cw, boxH, 2, 2, "F");
+  const iconCx = cx + 6;
+  const iconCy = boxY + boxH / 2;
+  doc.setFillColor(...PDF_WHITE);
+  doc.circle(iconCx, iconCy, 3.6, "F");
+  iconCoins(doc, iconCx, iconCy, 4.2, PDF_PINK);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(6.5);
+  doc.setTextColor(...PDF_MUTED);
+  doc.text("Sold Price", cx + 12.5, boxY + boxH * 0.32, { baseline: "middle" });
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.setTextColor(...PDF_PINK);
+  doc.text(`Rs. ${Number(player.sold_price || 0).toLocaleString("en-IN")}`, cx + 12.5, boxY + boxH * 0.7, { baseline: "middle" });
+}
+
+// Loads the page background and every player photo once
+async function loadTeamPdfAssets(players) {
+  const bg = await loadImageCover("/pdf-bg.png", PDF_W / PDF_H, 1240, { quality: 0.85 });
+  const list = await Promise.all(
+    players.map((p) => loadImageCover(p.photo_url, PDF_PHOTO_W / PDF_PHOTO_H, 240, { round: true }))
+  );
+  return { bg, photos: new Map(players.map((p, i) => [p.id, list[i]])) };
+}
+
+// Draws one team's roster starting on the current page of `doc`
+function drawTeamRosterPages(doc, team, teamPlayers, assets) {
+  const purse = `Rs. ${Number(team.remaining_purse || 0).toLocaleString("en-IN")}`;
+  const startPage = (full) => {
+    pdfDrawPageBackground(doc, assets.bg);
+    return pdfDrawTeamHeader(doc, { full, teamName: team.team_name || "Team", total: teamPlayers.length, purse });
+  };
+
+  let y = startPage(true);
+
+  if (teamPlayers.length === 0) {
+    doc.setFillColor(...PDF_WHITE);
+    doc.setDrawColor(...PDF_BORDER);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(PDF_MARGIN, y, PDF_W - PDF_MARGIN * 2, 20, 3, 3, "FD");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(...PDF_MUTED);
+    doc.text("No players bought yet.", PDF_W / 2, y + 10, { align: "center", baseline: "middle" });
+    return;
+  }
+
+  teamPlayers.forEach((p, i) => {
+    const col = i % PDF_COLS;
+    if (col === 0) {
+      if (i > 0) y += PDF_CARD_H + PDF_GAP;
+      if (y + PDF_CARD_H > PDF_H - 12) {
+        doc.addPage();
+        y = startPage(false);
+      }
+    }
+    const x = PDF_MARGIN + col * (PDF_CARD_W + PDF_GAP);
+    pdfDrawRosterCard(doc, p, assets.photos.get(p.id), x, y);
+  });
 }
 
 export default function TeamsPage() {
@@ -220,100 +630,22 @@ export default function TeamsPage() {
     try {
       const res = await api.get(`/players/auction/${auctionId}`);
       const allPlayers = res.data || [];
-      
-      const doc = new jsPDF();
+
+      const doc = new jsPDF({ unit: "mm", format: "a4" });
+      const soldPlayers = allPlayers.filter((p) => p.status === "SOLD");
+      const assets = await loadTeamPdfAssets(soldPlayers);
       let isFirstPage = true;
-      
+
       for (const team of teams) {
         if (!isFirstPage) {
           doc.addPage();
         }
         isFirstPage = false;
-        
+
         const teamPlayers = allPlayers.filter(p => Number(p.sold_team_id) === Number(team.id) && p.status === 'SOLD');
-        
-        doc.setFontSize(22);
-        doc.setFont("helvetica", "bold");
-        doc.text(team.team_name, 14, 22);
-        
-        doc.setFontSize(12);
-        doc.setFont("helvetica", "normal");
-        doc.text(`Total Players: ${teamPlayers.length} | Purse Remaining: Rs. ${Number(team.remaining_purse || 0).toLocaleString("en-IN")}`, 14, 32);
-        
-        const tableData = [];
-        const imagePromises = [];
-        
-        for (const p of teamPlayers) {
-          let base64Img = null;
-          if (p.photo_url) {
-            const promise = new Promise((resolve) => {
-              const img = new Image();
-              img.crossOrigin = "Anonymous";
-              img.onload = () => {
-                const canvas = document.createElement("canvas");
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext("2d");
-                ctx.drawImage(img, 0, 0);
-                try {
-                  base64Img = canvas.toDataURL("image/jpeg", 0.7);
-                } catch (e) { }
-                resolve();
-              };
-              img.onerror = () => resolve();
-              img.src = p.photo_url;
-            });
-            imagePromises.push(promise);
-          } else {
-            imagePromises.push(Promise.resolve());
-          }
-          
-          tableData.push({
-            player: p,
-            getBase64: () => base64Img
-          });
-        }
-        
-        await Promise.all(imagePromises);
-        
-        const rows = tableData.map(item => ({
-          photoPlaceholder: '',
-          name: item.player.player_name,
-          category: item.player.category || '-',
-          role: item.player.player_role || '-',
-          price: `Rs. ${Number(item.player.sold_price || 0).toLocaleString("en-IN")}`,
-          base64: item.getBase64()
-        }));
-        
-        autoTable(doc, {
-          startY: 40,
-          columns: [
-            { header: 'Photo', dataKey: 'photoPlaceholder' },
-            { header: 'Name', dataKey: 'name' },
-            { header: 'Category', dataKey: 'category' },
-            { header: 'Role', dataKey: 'role' },
-            { header: 'Price', dataKey: 'price' }
-          ],
-          body: rows,
-          headStyles: { fillColor: [236, 0, 140], textColor: 255, fontStyle: 'bold' },
-          bodyStyles: { minCellHeight: 25, valign: 'middle' },
-          columnStyles: { 0: { cellWidth: 25 } },
-          didDrawCell: (data) => {
-            if (data.section === 'body' && data.column.dataKey === 'photoPlaceholder') {
-              const b64 = data.row.raw.base64;
-              if (b64) {
-                try {
-                  doc.addImage(b64, 'JPEG', data.cell.x + 2, data.cell.y + 2, 20, 20);
-                } catch (e) {}
-              } else {
-                doc.setFontSize(10);
-                doc.text("No Photo", data.cell.x + 5, data.cell.y + 14);
-              }
-            }
-          }
-        });
+        drawTeamRosterPages(doc, team, teamPlayers, assets);
       }
-      
+
       doc.save(`${(auction?.auction_name || "Auction").replace(/\s+/g, '_')}_All_Teams_Rosters.pdf`);
     } catch (err) {
       console.error("PDF generation error", err);
@@ -788,97 +1120,10 @@ function TeamPlayersModal({ team, auctionId, onClose }) {
   const downloadPDF = async () => {
     setDownloading(true);
     try {
-      const doc = new jsPDF();
-      
-      doc.setFontSize(22);
-      doc.setFont("helvetica", "bold");
-      doc.text(team.team_name, 14, 22);
-      
-      doc.setFontSize(12);
-      doc.setFont("helvetica", "normal");
-      doc.text(`Total Players: ${players.length} | Purse Remaining: Rs. ${Number(team.remaining_purse || 0).toLocaleString("en-IN")}`, 14, 32);
-      
-      const tableData = [];
-      const imagePromises = [];
-      
-      for (const p of players) {
-        let base64Img = null;
-        if (p.photo_url) {
-          // Attempt to convert image to base64
-          const promise = new Promise((resolve) => {
-            const img = new Image();
-            img.crossOrigin = "Anonymous";
-            img.onload = () => {
-              const canvas = document.createElement("canvas");
-              canvas.width = img.width;
-              canvas.height = img.height;
-              const ctx = canvas.getContext("2d");
-              ctx.drawImage(img, 0, 0);
-              try {
-                base64Img = canvas.toDataURL("image/jpeg", 0.7);
-              } catch (e) {
-                // Tainted canvas
-              }
-              resolve();
-            };
-            img.onerror = () => resolve();
-            img.src = p.photo_url;
-          });
-          imagePromises.push(promise);
-        } else {
-          imagePromises.push(Promise.resolve());
-        }
-        
-        tableData.push({
-          player: p,
-          getBase64: () => base64Img
-        });
-      }
-      
-      await Promise.all(imagePromises);
-      
-      const rows = tableData.map(item => ({
-        photoPlaceholder: '',
-        name: item.player.player_name,
-        category: item.player.category || '-',
-        role: item.player.player_role || '-',
-        price: `Rs. ${Number(item.player.sold_price || 0).toLocaleString("en-IN")}`,
-        base64: item.getBase64()
-      }));
-      
-      autoTable(doc, {
-        startY: 40,
-        columns: [
-          { header: 'Photo', dataKey: 'photoPlaceholder' },
-          { header: 'Name', dataKey: 'name' },
-          { header: 'Category', dataKey: 'category' },
-          { header: 'Role', dataKey: 'role' },
-          { header: 'Price', dataKey: 'price' }
-        ],
-        body: rows,
-        headStyles: { fillColor: [236, 0, 140], textColor: 255, fontStyle: 'bold' },
-        bodyStyles: { minCellHeight: 25, valign: 'middle' },
-        columnStyles: {
-          0: { cellWidth: 25 },
-        },
-        didDrawCell: (data) => {
-          if (data.section === 'body' && data.column.dataKey === 'photoPlaceholder') {
-            const b64 = data.row.raw.base64;
-            if (b64) {
-              try {
-                doc.addImage(b64, 'JPEG', data.cell.x + 2, data.cell.y + 2, 20, 20);
-              } catch (e) {
-                // Ignore if error
-              }
-            } else {
-              // Draw placeholder if no photo
-              doc.setFontSize(10);
-              doc.text("No Photo", data.cell.x + 5, data.cell.y + 14);
-            }
-          }
-        }
-      });
-      
+      const doc = new jsPDF({ unit: "mm", format: "a4" });
+      const assets = await loadTeamPdfAssets(players);
+      drawTeamRosterPages(doc, team, players, assets);
+
       doc.save(`${team.team_name.replace(/\s+/g, '_')}_Roster.pdf`);
     } catch (err) {
       console.error("PDF generation error", err);

@@ -263,7 +263,7 @@ export default function TeamOverviewCard({
               <ArrowRight size={13} className={isTinted ? "" : accent.text} />
             </button>
           )}
-          {onDownload && (
+          {/* {onDownload && (
             <button
               type="button"
               onClick={() => onDownload(team)}
@@ -273,7 +273,7 @@ export default function TeamOverviewCard({
             >
               <Download size={15} />
             </button>
-          )}
+          )} */}
         </div>
       </div>
 

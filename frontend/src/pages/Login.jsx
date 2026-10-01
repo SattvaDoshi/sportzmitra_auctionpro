@@ -100,14 +100,14 @@ export default function Login() {
 
   // Ongoing -> open PublicLiveView for that specific auction
   // Upcoming -> open the AuctionList page
-  function handleAuctionCardClick(item) {
-    if (auctionTab === "ONGOING") {
-      const slug = item.public_slug || item.auction_code || item.id;
-      navigate(`/live/${slug}`);
-    } else {
-      navigate("/auctions");
-    }
+function handleAuctionCardClick(item) {
+  const slug = item.public_slug || item.auction_code || item.id;
+  if (auctionTab === "ONGOING") {
+    navigate(`/live/${slug}/dashboard`);
+  } else {
+    navigate(`/auction-upcoming/${slug}`, { state: { auction: item } });
   }
+}
 
   function handleViewAll() {
     navigate("/auctions");

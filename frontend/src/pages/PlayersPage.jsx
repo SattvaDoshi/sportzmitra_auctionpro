@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import AdminLayout from "../components/layout/AdminLayout";
 import StatusBadge from "../components/ui/StatusBadge";
 import api from "../api/api";
@@ -18,6 +17,379 @@ const emptyCorrection = { status: "AVAILABLE", sold_team_id: "", sold_price: "",
 
 function money(v) {
   return Number(v || 0).toLocaleString("en-IN");
+}
+
+/* ---------------------------------------------------------------------- */
+/* Toolbar constants                                                       */
+/* Every control shares the same height so text and icons line up.         */
+/* ---------------------------------------------------------------------- */
+const STATUS_FILTERS = ["ALL", "AVAILABLE", "SOLD", "UNSOLD", "FINAL_UNSOLD", "WITHDRAWN"];
+
+const actionBase =
+  "inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:text-sm";
+const actionOutline = `${actionBase} border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50`;
+const actionGreen = `${actionBase} bg-emerald-600 text-white hover:bg-emerald-700`;
+const actionPink = `${actionBase} cursor-pointer bg-pink-600 text-white hover:bg-pink-700`;
+
+/* ---------------------------------------------------------------------- */
+/* PDF design helpers                                                      */
+/* The PDF is a fixed A4 document, so it renders identically on mobile,    */
+/* tablet and laptop. Background image lives at /public/pdf-bg.png.        */
+/* ---------------------------------------------------------------------- */
+const PDF_W = 210;
+const PDF_H = 297;
+const PDF_MARGIN = 10;
+const PDF_GAP = 5;
+const PDF_COLS = 2;
+const PDF_CARD_W = (PDF_W - PDF_MARGIN * 2 - PDF_GAP * (PDF_COLS - 1)) / PDF_COLS;
+const PDF_CARD_H = 40;
+const PDF_PHOTO_W = 27;
+const PDF_PHOTO_H = 34;
+
+const PDF_PINK = [219, 39, 119];
+const PDF_PINK_SOFT = [253, 232, 243];
+const PDF_PINK_FAINT = [253, 242, 248];
+const PDF_BORDER = [251, 207, 232];
+const PDF_DARK = [15, 23, 42];
+const PDF_MUTED = [100, 116, 139];
+const PDF_WHITE = [255, 255, 255];
+
+const PDF_STATUS_STYLES = {
+  SOLD: { fg: [22, 163, 74], bg: [220, 252, 231] },
+  IN_AUCTION: { fg: [217, 119, 6], bg: [255, 237, 213] },
+  AVAILABLE: { fg: [37, 99, 235], bg: [219, 234, 254] },
+  UNSOLD: { fg: [100, 116, 139], bg: [226, 232, 240] },
+  FINAL_UNSOLD: { fg: [185, 28, 28], bg: [254, 226, 226] },
+  WITHDRAWN: { fg: [185, 28, 28], bg: [254, 226, 226] },
+};
+
+/* ---------- Image loading ---------- */
+function pdfLoadImgEl(src, cors) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    if (cors) img.crossOrigin = "Anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+// Google Drive share links don't work as <img> sources; convert them to a direct thumbnail URL
+function pdfNormalizeUrl(url) {
+  if (!url) return "";
+  const u = String(url).trim();
+  if (/drive\.google\.com|docs\.google\.com/.test(u)) {
+    const m = u.match(/\/d\/([\w-]+)/) || u.match(/[?&]id=([\w-]+)/);
+    if (m) return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w600`;
+  }
+  return u;
+}
+
+function pdfRenderCover(img, ratio, maxW, { fill, quality, round }) {
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  let sw = iw;
+  let sh = ih;
+  if (iw / ih > ratio) sw = ih * ratio;
+  else sh = iw / ratio;
+  const sx = (iw - sw) / 2;
+  const sy = (ih - sh) * 0.15; // bias toward the top so faces stay in frame
+  const outW = Math.max(1, Math.min(maxW, Math.round(sw)));
+  const outH = Math.max(1, Math.round(outW / ratio));
+  const canvas = document.createElement("canvas");
+  canvas.width = outW;
+  canvas.height = outH;
+  const ctx = canvas.getContext("2d");
+  if (round) {
+    const r = outW * 0.075;
+    ctx.beginPath();
+    ctx.moveTo(r, 0);
+    ctx.arcTo(outW, 0, outW, outH, r);
+    ctx.arcTo(outW, outH, 0, outH, r);
+    ctx.arcTo(0, outH, 0, 0, r);
+    ctx.arcTo(0, 0, outW, 0, r);
+    ctx.closePath();
+    ctx.clip();
+  } else {
+    ctx.fillStyle = fill;
+    ctx.fillRect(0, 0, outW, outH);
+  }
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
+  return round ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", quality);
+}
+
+// Center-crops an image to `ratio` and returns { data, type } (or null on failure).
+// Tries a normal CORS load first, then a fresh fetch() as a fallback (fixes images
+// the browser cached earlier without CORS headers).
+async function loadImageCover(url, ratio, maxW, { fill = "#ffffff", quality = 0.8, round = false } = {}) {
+  const src = pdfNormalizeUrl(url);
+  if (!src) return null;
+  let objectUrl = null;
+  try {
+    let img = await pdfLoadImgEl(src, true);
+    if (!img) {
+      try {
+        const res = await fetch(src, { mode: "cors", cache: "no-store" });
+        if (res.ok) {
+          objectUrl = URL.createObjectURL(await res.blob());
+          img = await pdfLoadImgEl(objectUrl, false);
+        }
+      } catch (e) {}
+    }
+    if (!img) return null;
+    const data = pdfRenderCover(img, ratio, maxW, { fill, quality, round });
+    return { data, type: round ? "PNG" : "JPEG" };
+  } catch (e) {
+    return null;
+  } finally {
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+  }
+}
+
+/* ---------- Drawing primitives ---------- */
+function pdfTruncate(doc, text, maxW) {
+  let t = String(text ?? "");
+  if (doc.getTextWidth(t) <= maxW) return t;
+  while (t.length > 1 && doc.getTextWidth(`${t}...`) > maxW) t = t.slice(0, -1);
+  return `${t}...`;
+}
+
+function pdfPoly(doc, pts, style = "F") {
+  const segs = pts.slice(1).map((p, i) => [p[0] - pts[i][0], p[1] - pts[i][1]]);
+  doc.lines(segs, pts[0][0], pts[0][1], [1, 1], style, true);
+}
+
+function pdfRotRect(cx, cy, w, h, deg) {
+  const t = (deg * Math.PI) / 180;
+  const c = Math.cos(t);
+  const s = Math.sin(t);
+  return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(([x, y]) => [cx + x * c - y * s, cy + x * s + y * c]);
+}
+
+/* ---------- Vector icons (all centered on cx, cy and sized by s) ---------- */
+function iconUsers(doc, cx, cy, s, c) {
+  doc.setFillColor(...c);
+  doc.circle(cx - 0.18 * s, cy - 0.22 * s, 0.2 * s, "F");
+  doc.ellipse(cx - 0.18 * s, cy + 0.36 * s, 0.34 * s, 0.22 * s, "F");
+  doc.circle(cx + 0.32 * s, cy - 0.12 * s, 0.16 * s, "F");
+  doc.ellipse(cx + 0.32 * s, cy + 0.4 * s, 0.24 * s, 0.18 * s, "F");
+}
+
+function iconGavel(doc, cx, cy, s, c) {
+  doc.setFillColor(...c);
+  doc.setDrawColor(...c);
+  doc.setLineWidth(Math.max(0.3, 0.14 * s));
+  doc.line(cx + 0.02 * s, cy - 0.02 * s, cx - 0.4 * s, cy + 0.36 * s);
+  pdfPoly(doc, pdfRotRect(cx + 0.14 * s, cy - 0.2 * s, 0.72 * s, 0.32 * s, 45), "F");
+  doc.setLineWidth(Math.max(0.3, 0.16 * s));
+  doc.line(cx - 0.12 * s, cy + 0.52 * s, cx + 0.5 * s, cy + 0.52 * s);
+}
+
+function iconBall(doc, cx, cy, s, c) {
+  doc.setFillColor(...c);
+  doc.circle(cx, cy, 0.5 * s, "F");
+  doc.setDrawColor(...PDF_WHITE);
+  doc.setLineWidth(Math.max(0.2, 0.09 * s));
+  doc.lines([[0.34 * s, 0.14 * s, 0.34 * s, 0.46 * s, 0, 0.64 * s]], cx - 0.2 * s, cy - 0.32 * s, [1, 1], "S", false);
+}
+
+function iconBat(doc, cx, cy, s, c) {
+  doc.setFillColor(...c);
+  doc.setDrawColor(...c);
+  const ang = 40;
+  const t = (ang * Math.PI) / 180;
+  const bcx = cx - 0.06 * s;
+  const bcy = cy + 0.14 * s;
+  pdfPoly(doc, pdfRotRect(bcx, bcy, 0.4 * s, 0.78 * s, ang), "F");
+  const topX = bcx + Math.sin(t) * 0.39 * s;
+  const topY = bcy - Math.cos(t) * 0.39 * s;
+  doc.setLineWidth(Math.max(0.3, 0.12 * s));
+  doc.line(topX, topY, topX + Math.sin(t) * 0.28 * s, topY - Math.cos(t) * 0.28 * s);
+}
+
+function iconStumps(doc, cx, cy, s, c) {
+  doc.setDrawColor(...c);
+  doc.setLineWidth(Math.max(0.3, 0.13 * s));
+  [-0.3, 0, 0.3].forEach((dx) => doc.line(cx + dx * s, cy - 0.38 * s, cx + dx * s, cy + 0.5 * s));
+  doc.setLineWidth(Math.max(0.25, 0.1 * s));
+  doc.line(cx - 0.3 * s, cy - 0.5 * s, cx - 0.04 * s, cy - 0.5 * s);
+  doc.line(cx + 0.04 * s, cy - 0.5 * s, cx + 0.3 * s, cy - 0.5 * s);
+}
+
+function iconCoins(doc, cx, cy, s, c) {
+  doc.setFillColor(...c);
+  doc.setDrawColor(...PDF_WHITE);
+  doc.setLineWidth(Math.max(0.15, 0.07 * s));
+  [0.34, 0.04, -0.26].forEach((dy) => doc.ellipse(cx, cy + dy * s, 0.46 * s, 0.2 * s, "FD"));
+}
+
+function pdfRoleIcon(role) {
+  const r = String(role || "").toUpperCase();
+  if (r.includes("WICKET") || r.includes("KEEP") || /\bWK\b/.test(r)) return iconStumps;
+  if (r.includes("ALL")) return iconBall;
+  if (r.includes("BAT")) return iconBat;
+  return iconBall;
+}
+
+/* ---------- Pill / chip / card ---------- */
+// Rounded label with optional icon or status dot; text is vertically centered
+function pdfPill(doc, text, x, y, h, fg, bg, { alignRight = false, maxW = 60, icon = null, dot = false } = {}) {
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(6.5);
+  const pad = 2.6;
+  const lead = icon ? 3.6 : dot ? 2.6 : 0;
+  const label = pdfTruncate(doc, text, maxW - pad * 2 - lead);
+  const w = doc.getTextWidth(label) + pad * 2 + lead;
+  const px = alignRight ? x - w : x;
+  const my = y + h / 2;
+  doc.setFillColor(...bg);
+  doc.roundedRect(px, y, w, h, h / 2, h / 2, "F");
+  if (icon) icon(doc, px + pad + 1.4, my, 2.8, fg);
+  else if (dot) {
+    doc.setFillColor(...fg);
+    doc.circle(px + pad + 0.7, my, 0.7, "F");
+  }
+  doc.setTextColor(...fg);
+  doc.text(label, px + pad + lead, my, { baseline: "middle" });
+  return w;
+}
+
+function pdfDrawPageBackground(doc, bg) {
+  doc.setFillColor(255, 255, 255);
+  doc.rect(0, 0, PDF_W, PDF_H, "F");
+  if (bg) {
+    try { doc.addImage(bg.data, bg.type, 0, 0, PDF_W, PDF_H, "pdfbg", "FAST"); } catch (e) {}
+  }
+}
+
+// Draws the page header and returns the Y where cards should start
+function pdfDrawHeader(doc, { full, line1, line2, total, eventName }) {
+  doc.setFont("helvetica", "bold");
+
+  if (!full) {
+    let size = 14;
+    doc.setFontSize(size);
+    while (doc.getTextWidth(line1) > PDF_W - PDF_MARGIN * 2 && size > 9) { size -= 1; doc.setFontSize(size); }
+    doc.setTextColor(...PDF_DARK);
+    doc.text(line1, PDF_MARGIN, 17);
+    doc.setDrawColor(...PDF_PINK);
+    doc.setLineWidth(0.8);
+    doc.line(PDF_MARGIN, 20.5, PDF_MARGIN + 14, 20.5);
+    return 27;
+  }
+
+  // Info chips (top-right)
+  const chipH = 18;
+  const chipY = 12;
+  const chip2W = 52;
+  const chip1W = 36;
+  const chip2X = PDF_W - PDF_MARGIN - chip2W;
+  const chip1X = chip2X - 3 - chip1W;
+
+  // Title (left) — shrinks to fit the space left of the chips
+  const titleMaxW = chip1X - PDF_MARGIN - 5;
+  let size = 22;
+  doc.setFontSize(size);
+  while ((doc.getTextWidth(line1) > titleMaxW || doc.getTextWidth(line2) > titleMaxW) && size > 12) {
+    size -= 1;
+    doc.setFontSize(size);
+  }
+  doc.setTextColor(...PDF_DARK);
+  doc.text(line1, PDF_MARGIN, 21);
+  doc.setTextColor(...PDF_PINK);
+  doc.text(line2, PDF_MARGIN, 30);
+  doc.setDrawColor(...PDF_PINK);
+  doc.setLineWidth(0.8);
+  doc.line(PDF_MARGIN, 34, PDF_MARGIN + 18, 34);
+
+  [
+    [chip1X, chip1W, "Total Players", String(total), iconUsers],
+    [chip2X, chip2W, "Auction Event", eventName || "-", iconGavel],
+  ].forEach(([cx, cw, label, value, icon]) => {
+    const midY = chipY + chipH / 2;
+    doc.setFillColor(...PDF_WHITE);
+    doc.setDrawColor(...PDF_BORDER);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(cx, chipY, cw, chipH, 3.5, 3.5, "FD");
+    // icon badge
+    doc.setFillColor(...PDF_PINK_SOFT);
+    doc.circle(cx + 7, midY, 4.2, "F");
+    icon(doc, cx + 7, midY, 4.4, PDF_PINK);
+    // text
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(...PDF_MUTED);
+    doc.text(label, cx + 13.5, chipY + 6.5, { baseline: "middle" });
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(...PDF_PINK);
+    doc.text(pdfTruncate(doc, value, cw - 16), cx + 13.5, chipY + 12.2, { baseline: "middle" });
+  });
+
+  return 42;
+}
+
+function pdfDrawPlayerCard(doc, player, photo, x, y) {
+  // Card
+  doc.setFillColor(...PDF_WHITE);
+  doc.setDrawColor(...PDF_BORDER);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(x, y, PDF_CARD_W, PDF_CARD_H, 3, 3, "FD");
+
+  // Photo (rounded, pink-tinted backing)
+  const px = x + 3;
+  const py = y + 3;
+  doc.setFillColor(...PDF_PINK_SOFT);
+  doc.roundedRect(px, py, PDF_PHOTO_W, PDF_PHOTO_H, 2, 2, "F");
+  if (photo) {
+    try { doc.addImage(photo.data, photo.type, px, py, PDF_PHOTO_W, PDF_PHOTO_H, undefined, "FAST"); } catch (e) {}
+  } else {
+    const initials = String(player.player_name || "?").split(/\s+/).slice(0, 2).map((s) => s[0] || "").join("").toUpperCase();
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(15);
+    doc.setTextColor(...PDF_PINK);
+    doc.text(initials, px + PDF_PHOTO_W / 2, py + PDF_PHOTO_H / 2, { align: "center", baseline: "middle" });
+  }
+  doc.setDrawColor(...PDF_BORDER);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(px, py, PDF_PHOTO_W, PDF_PHOTO_H, 2, 2, "S");
+
+  // Right content area
+  const cx = px + PDF_PHOTO_W + 4;
+  const cw = x + PDF_CARD_W - 3 - cx;
+
+  // Status pill (top-right, with dot)
+  const st = PDF_STATUS_STYLES[player.status] || PDF_STATUS_STYLES.UNSOLD;
+  const statusW = pdfPill(doc, String(player.status || "-").replace(/_/g, " "), x + PDF_CARD_W - 3, y + 4, 5.5, st.fg, st.bg, { alignRight: true, maxW: 30, dot: true });
+
+  // Name
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(...PDF_DARK);
+  const nameText = `${player.serial_number ? `${player.serial_number} - ` : ""}${player.player_name || ""}`;
+  doc.text(pdfTruncate(doc, nameText, cw - statusW - 2), cx, y + 6.75, { baseline: "middle" });
+
+  // Role pill (with role icon)
+  pdfPill(doc, player.player_role || "-", cx, y + 12, 5.5, PDF_PINK, PDF_PINK_SOFT, { maxW: cw, icon: pdfRoleIcon(player.player_role) });
+
+  // Base price box
+  const boxY = y + 20.5;
+  const boxH = PDF_CARD_H - 20.5 - 3;
+  doc.setFillColor(...PDF_PINK_FAINT);
+  doc.roundedRect(cx, boxY, cw, boxH, 2, 2, "F");
+  const iconCx = cx + 6;
+  const iconCy = boxY + boxH / 2;
+  doc.setFillColor(...PDF_WHITE);
+  doc.circle(iconCx, iconCy, 3.6, "F");
+  iconCoins(doc, iconCx, iconCy, 4.2, PDF_PINK);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(6.5);
+  doc.setTextColor(...PDF_MUTED);
+  doc.text("Base Price", cx + 12.5, boxY + boxH * 0.32, { baseline: "middle" });
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.setTextColor(...PDF_PINK);
+  doc.text(`Rs. ${Number(player.base_price || 0).toLocaleString("en-IN")}`, cx + 12.5, boxY + boxH * 0.7, { baseline: "middle" });
 }
 
 /* ---------------------------------------------------------------------- */
@@ -128,8 +500,12 @@ export default function PlayersPage() {
   async function downloadPlayersPdf(categoryWise = false) {
     setDownloadingPdf(true);
     try {
-      const doc = new jsPDF();
-      let isFirstPage = true;
+      const doc = new jsPDF({ unit: "mm", format: "a4" });
+
+      // Background (public/pdf-bg.png) + all player photos, loaded up front
+      const bg = await loadImageCover("/pdf-bg.png", PDF_W / PDF_H, 1240, { quality: 0.85 });
+      const photoList = await Promise.all(players.map((p) => loadImageCover(p.photo_url, PDF_PHOTO_W / PDF_PHOTO_H, 240, { round: true })));
+      const photos = new Map(players.map((p, i) => [p.id, photoList[i]]));
 
       // Group players by category if categoryWise is true
       const groups = {};
@@ -143,91 +519,37 @@ export default function PlayersPage() {
         groups["All Players"] = players;
       }
 
+      const eventName = auction?.auction_name || "Players Registry";
+      let isFirstPage = true;
+
       for (const [groupName, groupPlayers] of Object.entries(groups)) {
-        if (!isFirstPage) {
-          doc.addPage();
-        }
+        if (!isFirstPage) doc.addPage();
         isFirstPage = false;
 
-        doc.setFontSize(22);
-        doc.setFont("helvetica", "bold");
-        doc.text(categoryWise ? `Category: ${groupName}` : (auction?.auction_name || "Players Registry"), 14, 22);
-
-        doc.setFontSize(12);
-        doc.setFont("helvetica", "normal");
-        doc.text(`Total Players: ${groupPlayers.length}`, 14, 32);
-
-        const tableData = [];
-        const imagePromises = [];
-
-        for (const p of groupPlayers) {
-          let base64Img = null;
-          if (p.photo_url) {
-            const promise = new Promise((resolve) => {
-              const img = new Image();
-              img.crossOrigin = "Anonymous";
-              img.onload = () => {
-                const canvas = document.createElement("canvas");
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext("2d");
-                ctx.drawImage(img, 0, 0);
-                try {
-                  base64Img = canvas.toDataURL("image/jpeg", 0.7);
-                } catch (e) {}
-                resolve();
-              };
-              img.onerror = () => resolve();
-              img.src = p.photo_url;
-            });
-            imagePromises.push(promise);
-          } else {
-            imagePromises.push(Promise.resolve());
-          }
-
-          tableData.push({
-            player: p,
-            getBase64: () => base64Img
+        const startPage = (full) => {
+          pdfDrawPageBackground(doc, bg);
+          return pdfDrawHeader(doc, {
+            full,
+            line1: eventName,
+            line2: categoryWise ? `Category: ${groupName}` : "Player Registry",
+            total: groupPlayers.length,
+            eventName,
           });
-        }
+        };
 
-        await Promise.all(imagePromises);
+        let y = startPage(true);
 
-        const rows = tableData.map(item => ({
-          photoPlaceholder: '',
-          name: item.player.player_name,
-          role: item.player.player_role || '-',
-          status: item.player.status,
-          price: `Rs. ${Number(item.player.base_price || 0).toLocaleString("en-IN")}`,
-          base64: item.getBase64()
-        }));
-
-        autoTable(doc, {
-          startY: 40,
-          columns: [
-            { header: 'Photo', dataKey: 'photoPlaceholder' },
-            { header: 'Name', dataKey: 'name' },
-            { header: 'Role', dataKey: 'role' },
-            { header: 'Status', dataKey: 'status' },
-            { header: 'Base Price', dataKey: 'price' }
-          ],
-          body: rows,
-          headStyles: { fillColor: [236, 0, 140], textColor: 255, fontStyle: 'bold' },
-          bodyStyles: { minCellHeight: 25, valign: 'middle' },
-          columnStyles: { 0: { cellWidth: 25 } },
-          didDrawCell: (data) => {
-            if (data.section === 'body' && data.column.dataKey === 'photoPlaceholder') {
-              const b64 = data.row.raw.base64;
-              if (b64) {
-                try {
-                  doc.addImage(b64, 'JPEG', data.cell.x + 2, data.cell.y + 2, 20, 20);
-                } catch (e) {}
-              } else {
-                doc.setFontSize(10);
-                doc.text("No Photo", data.cell.x + 5, data.cell.y + 14);
-              }
+        groupPlayers.forEach((p, i) => {
+          const col = i % PDF_COLS;
+          if (col === 0) {
+            if (i > 0) y += PDF_CARD_H + PDF_GAP;
+            if (y + PDF_CARD_H > PDF_H - 12) {
+              doc.addPage();
+              y = startPage(false);
             }
           }
+          const x = PDF_MARGIN + col * (PDF_CARD_W + PDF_GAP);
+          pdfDrawPlayerCard(doc, p, photos.get(p.id), x, y);
         });
       }
 
@@ -332,30 +654,29 @@ export default function PlayersPage() {
           </div>
 
           {/* Filter Bar & Quick Actions */}
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
-              <div className="relative max-w-md flex-1">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+          <div className="space-y-3">
+            {/* Row 1: search + status filter */}
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+              <div className="relative w-full shrink-0 lg:w-72 xl:w-80">
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search player, role, team..."
-                  className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+                  className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
                 />
               </div>
 
-              {/* Status chips — a single horizontally-scrollable row on
-                  mobile (no wrapping onto uneven lines); reverts to a
-                  normal wrapping row once there's enough width from md up. */}
-              <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:flex-wrap md:overflow-visible md:px-0 md:pb-0">
-                {["ALL", "AVAILABLE", "SOLD", "UNSOLD", "FINAL_UNSOLD", "WITHDRAWN"].map((st) => (
+              {/* Segmented status filter: never wraps, scrolls sideways if space runs out */}
+              <div className="flex min-w-0 max-w-full items-center gap-1 overflow-x-auto rounded-xl bg-slate-100 p-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:w-fit">
+                {STATUS_FILTERS.map((st) => (
                   <button
                     key={st}
                     onClick={() => setStatus(st)}
-                    className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    className={`h-8 shrink-0 whitespace-nowrap rounded-lg px-3 text-xs font-semibold transition ${
                       status === st
-                        ? "bg-slate-900 text-white"
-                        : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                        ? "bg-slate-900 text-white shadow-sm"
+                        : "text-slate-500 hover:bg-white hover:text-slate-900"
                     }`}
                   >
                     {st.replace("_", " ")}
@@ -364,50 +685,39 @@ export default function PlayersPage() {
               </div>
             </div>
 
-            {/* Quick actions — equal 3-column grid on mobile so labels stay
-                on one line and all three buttons match height; reverts to
-                the original inline row from sm: up. */}
-            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center flex-wrap">
+            {/* Row 2: actions.
+                Mobile: 2-column grid, Add Player full width on top.
+                sm+: single wrapping row, pushed right on large screens. */}
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center lg:justify-end">
+              <button onClick={openAdd} className={`${actionGreen} col-span-2 sm:order-4 sm:col-span-1`}>
+                <Plus size={16} className="shrink-0" />
+                Add Player
+              </button>
+              <label className={`${actionPink} sm:order-5`}>
+                <Upload size={16} className="shrink-0" />
+                Upload Excel
+                <input type="file" accept=".xlsx,.xls" className="hidden" onChange={uploadPlayers} />
+              </label>
+              <button onClick={downloadTemplate} className={`${actionOutline} sm:order-3`}>
+                <Download size={16} className="shrink-0" />
+                Template
+              </button>
               <button
                 onClick={() => downloadPlayersPdf(false)}
                 disabled={downloadingPdf || players.length === 0}
-                className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-2.5 py-2.5 text-[11px] font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:gap-2 sm:px-4 sm:text-sm disabled:opacity-50"
+                className={`${actionOutline} sm:order-1`}
               >
-                <Download size={15} className="shrink-0 sm:hidden" />
-                <Download size={16} className="hidden shrink-0 sm:block" />
-                {downloadingPdf ? "Gen..." : "PDF (All)"}
+                <Download size={16} className="shrink-0" />
+                {downloadingPdf ? "Generating..." : "PDF (All)"}
               </button>
               <button
                 onClick={() => downloadPlayersPdf(true)}
                 disabled={downloadingPdf || players.length === 0}
-                className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-2.5 py-2.5 text-[11px] font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:gap-2 sm:px-4 sm:text-sm disabled:opacity-50"
+                className={`${actionOutline} sm:order-2`}
               >
-                <Download size={15} className="shrink-0 sm:hidden" />
-                <Download size={16} className="hidden shrink-0 sm:block" />
-                {downloadingPdf ? "Gen..." : "PDF (Category)"}
+                <Download size={16} className="shrink-0" />
+                {downloadingPdf ? "Generating..." : "PDF (Category)"}
               </button>
-              <button
-                onClick={openAdd}
-                className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-emerald-600 px-2.5 py-2.5 text-[11px] font-semibold text-white transition hover:bg-emerald-700 sm:gap-2 sm:px-4 sm:text-sm"
-              >
-                <Plus size={15} className="shrink-0 sm:hidden" />
-                <Plus size={16} className="hidden shrink-0 sm:block" />
-                Add Player
-              </button>
-              <button
-                onClick={downloadTemplate}
-                className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-2.5 py-2.5 text-[11px] font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:gap-2 sm:px-4 sm:text-sm"
-              >
-                <Download size={15} className="shrink-0 sm:hidden" />
-                <Download size={16} className="hidden shrink-0 sm:block" />
-                Template
-              </button>
-              <label className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-pink-600 px-2.5 py-2.5 text-[11px] font-semibold text-white transition hover:bg-pink-700 sm:gap-2 sm:px-4 sm:text-sm">
-                <Upload size={15} className="shrink-0 sm:hidden" />
-                <Upload size={16} className="hidden shrink-0 sm:block" />
-                Upload Excel
-                <input type="file" accept=".xlsx,.xls" className="hidden" onChange={uploadPlayers} />
-              </label>
             </div>
           </div>
 

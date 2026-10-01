@@ -13,7 +13,7 @@ import LiveControl from "./pages/LiveControl.jsx";
 import PublicLiveView from "./pages/PublicLiveView.jsx";
 import PublicDashboardView from "./pages/PublicDashboardView.jsx";
 import YoutubeOverlay from "./pages/YoutubeOverlay.jsx";
-
+import AuctionNotStarted from "./pages/AuctionNotStarted";
 export default function App() {
   return (
     <Routes>
@@ -51,6 +51,11 @@ export default function App() {
       />
       <Route path="/live/:publicSlug/overlay" element={<YoutubeOverlay />} />
       <Route path="*" element={<Navigate to="/login" replace />} />
+   
+  <Route path="/" element={<Login />} />
+  <Route path="/live/:slug/dashboard" element={<PublicDashboardView />} />
+  <Route path="/auction-upcoming/:slug" element={<AuctionNotStarted />} />  
+
     </Routes>
   );
 }

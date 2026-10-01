@@ -186,12 +186,12 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
             <div className="text-[10px] font-bold uppercase tracking-wider text-white/60">Base Price</div>
             <div className="aa-display text-2xl">₹{money(basePrice)}</div>
           </div>
-          <Link
+          {/* <Link
             to={`/live/${publicSlug}`}
             className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#EC008C] py-3 text-sm font-black uppercase tracking-wide shadow-lg shadow-[#EC008C]/40 transition hover:bg-[#d4007e] active:scale-[.98]"
-          >
-            <Gavel size={18} className="-rotate-45" /> Place Bid
-          </Link>
+          > */}
+            {/* <Gavel size={18} className="-rotate-45" /> Place Bid */}
+          {/* </Link> */}
         </div>
 
         {/* Mobile-only info: below the bid panel */}
