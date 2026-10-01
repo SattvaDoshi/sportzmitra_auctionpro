@@ -3,10 +3,16 @@ import { useParams } from "react-router-dom";
 import api from "../api/api";
 import { getImageUrl } from "../utils/imageUrl";
 import socket from "../utils/socket";
-import { Gavel, Users } from "lucide-react";
+import { Gavel, Users, Trophy } from "lucide-react";
 
 /**
  * PublicLiveView.jsx
+ *
+ * Layout
+ *  - Header is always at the top on every screen size.
+ *  - lg+      : header, then [ Player Stats | Photo + name | Current Bid ], sponsors at the bottom
+ *  - md       : header, then photo + name on top, Player Stats and Current Bid side by side
+ *  - mobile   : header -> photo + name -> Current Bid -> Player Stats -> sponsors
  */
 
 function formatAmount(value) {
@@ -14,6 +20,153 @@ function formatAmount(value) {
 }
 
 const DEFAULT_TEAMS = [];
+
+/* ---------------------------------------------------------------------------
+   PLAYER STATS (rich-text field)
+   ---------------------------------------------------------------------------
+   The stats panel reads the player's rich-text / stats field from the live
+   `state`. If your field has a different name, add it to STAT_SOURCE_KEYS.
+
+   Accepted formats for that field:
+     - HTML table  (header row + value row, OR two-column label/value rows)
+     - HTML / plain text lines like "Match: 10"
+     - JSON string, object  { match: 10, sixes: 4 }
+     - array  [{ label: "Match", value: 10 }]
+   If nothing is found, the six standard tiles are filled from flat fields
+   (matches, batting_avg, ...) and show "-" when missing.
+--------------------------------------------------------------------------- */
+const STAT_SOURCE_KEYS = [
+  "player_stats",
+  "stats",
+  "rich_text",
+  "richtext",
+  "player_details",
+  "player_info",
+  "additional_info",
+  "custom_fields",
+  "extra_fields",
+];
+
+const DEFAULT_STAT_DEFS = [
+  { label: "Match", keys: ["matches", "match", "matches_played", "total_matches"] },
+  { label: "Batting Avg", keys: ["batting_avg", "batting_average"] },
+  { label: "Bowling Avg", keys: ["bowling_avg", "bowling_average"] },
+  { label: "Strike Rate", keys: ["strike_rate"] },
+  { label: "Sixes", keys: ["sixes", "total_sixes"] },
+  { label: "Fours", keys: ["fours", "total_fours"] },
+];
+
+function humanizeKey(key) {
+  return String(key)
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .trim();
+}
+
+function cleanCell(text) {
+  return String(text ?? "").replace(/\s+/g, " ").trim();
+}
+
+function parseTextLines(text) {
+  return String(text)
+    .split(/\n|;/)
+    .map((line) => {
+      const idx = line.indexOf(":");
+      if (idx <= 0) return null;
+      const label = cleanCell(line.slice(0, idx));
+      const value = cleanCell(line.slice(idx + 1));
+      if (!label || !value || label.length > 30) return null;
+      return { label, value };
+    })
+    .filter(Boolean);
+}
+
+function parseHtmlStats(html) {
+  if (typeof DOMParser === "undefined") return [];
+
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const rows = Array.from(doc.querySelectorAll("tr"))
+    .map((tr) => {
+      const cells = Array.from(tr.children).filter((c) => c.tagName === "TD" || c.tagName === "TH");
+      return {
+        cells: cells.map((c) => cleanCell(c.textContent)),
+        isHeader: cells.length > 0 && cells.every((c) => c.tagName === "TH"),
+      };
+    })
+    .filter((r) => r.cells.some(Boolean));
+
+  if (rows.length) {
+    /* Horizontal table: header row of labels + one row of values */
+    if ((rows[0].isHeader || rows.length === 2) && rows[0].cells.length > 2 && rows[1]) {
+      return rows[0].cells
+        .map((label, i) => ({ label, value: rows[1].cells[i] || "-" }))
+        .filter((s) => s.label);
+    }
+    /* Vertical table: label | value per row */
+    return rows
+      .filter((r) => !r.isHeader && r.cells.length >= 2)
+      .map((r) => ({ label: r.cells[0], value: r.cells[1] }))
+      .filter((s) => s.label && s.value !== "");
+  }
+
+  /* No table: treat block elements / <br> as line breaks, read "Label: value" */
+  const withBreaks = html.replace(/<\/(p|div|li|tr|h[1-6])>|<br\s*\/?>/gi, "\n");
+  const text = new DOMParser().parseFromString(withBreaks, "text/html").body.textContent || "";
+  return parseTextLines(text);
+}
+
+function parseStats(raw) {
+  if (raw == null || raw === "") return [];
+
+  if (Array.isArray(raw)) {
+    return raw.flatMap((item) => {
+      if (item && typeof item === "object") {
+        const label = item.label ?? item.name ?? item.key ?? item.title;
+        const value = item.value ?? item.val ?? item.stat;
+        if (label != null && value != null) {
+          return [{ label: cleanCell(label), value: cleanCell(value) || "-" }];
+        }
+        return parseStats(item);
+      }
+      return parseStats(item);
+    });
+  }
+
+  if (typeof raw === "object") {
+    return Object.entries(raw)
+      .filter(([, v]) => v != null && typeof v !== "object")
+      .map(([k, v]) => ({ label: humanizeKey(k), value: cleanCell(v) || "-" }));
+  }
+
+  if (typeof raw === "string") {
+    const str = raw.trim();
+    if (!str) return [];
+    if (str.startsWith("[") || str.startsWith("{")) {
+      try {
+        return parseStats(JSON.parse(str));
+      } catch {
+        /* not JSON, fall through */
+      }
+    }
+    if (/<[a-z][\s\S]*>/i.test(str)) return parseHtmlStats(str);
+    return parseTextLines(str);
+  }
+
+  return [];
+}
+
+function resolveStats(state) {
+  if (state) {
+    for (const key of STAT_SOURCE_KEYS) {
+      const parsed = parseStats(state[key]);
+      if (parsed.length) return parsed;
+    }
+  }
+  return DEFAULT_STAT_DEFS.map((def) => {
+    const found = state ? def.keys.find((k) => state[k] != null && state[k] !== "") : null;
+    return { label: def.label, value: found ? cleanCell(state[found]) : "-" };
+  });
+}
 
 /* Loads the display typeface used across every headline/number in the
    design (Anton) once per mount. Scoped with a data attribute so it never
@@ -27,34 +180,70 @@ function DisplayFontLoader() {
   );
 }
 
-/* Player cut-out. The photo's bottom edge is faded out so the player blends
-   into the stadium smoke behind the name, like the design. */
-function PlayerPhoto({ url, name, className }) {
+/* Rectangular auction logo box (wide, not a small square).
+   Shows the uploaded logo, or an "Auction Logo" placeholder. */
+function AuctionLogoBox({ url }) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [url]);
+
+  const showImg = url && !failed;
+
+  return (
+    <div className="flex h-12 min-w-[150px] max-w-[220px] items-center justify-center rounded-lg border border-white/15 bg-white/5 px-3 py-1 backdrop-blur-sm sm:h-14 sm:max-w-[260px]">
+      {showImg ? (
+        <img
+          src={url}
+          alt="Auction Logo"
+          draggable="false"
+          onError={() => setFailed(true)}
+          className="max-h-full w-auto max-w-full object-contain"
+        />
+      ) : (
+        <span className="flex items-center gap-2">
+          <Gavel className="h-5 w-5 shrink-0 -rotate-45 text-[#E5007D]" />
+          <span className="whitespace-nowrap text-sm font-semibold text-white sm:text-base">Auction Logo</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
+/* Player card. The photo fills a portrait card and fades out at the bottom
+   so the name (overlaid by the parent) sits on the dark stadium behind it. */
+function PlayerPhoto({ url, name, className = "" }) {
   const photo = getImageUrl(url);
   const [failed, setFailed] = useState(false);
 
-  if (photo && !failed) {
-    const mask = "linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%)";
-    return (
-      <img
-        src={photo}
-        alt={name || "Player"}
-        draggable="false"
-        className={className}
-        onError={() => setFailed(true)}
-        style={{
-          WebkitMaskImage: mask,
-          maskImage: mask,
-          filter: "drop-shadow(0 18px 30px rgba(0,0,0,0.45))",
-        }}
-      />
-    );
-  }
+  useEffect(() => {
+    setFailed(false);
+  }, [photo]);
+
+  const mask = "linear-gradient(to bottom, #000 0%, #000 58%, transparent 100%)";
+  const showImg = photo && !failed;
+
   return (
     <div
-      className={`${className} flex min-w-[10rem] items-center justify-center bg-transparent font-black text-[#E5007D]/50`}
+      className={`relative overflow-hidden rounded-t-2xl bg-gradient-to-b from-[#ff8fd0]/55 via-[#E5007D]/30 to-[#E5007D]/5 ${className}`}
+      style={{ WebkitMaskImage: mask, maskImage: mask }}
     >
-      <span className="aa-display text-7xl">{String(name || "P").charAt(0).toUpperCase()}</span>
+      {showImg ? (
+        <img
+          src={photo}
+          alt={name || "Player"}
+          draggable="false"
+          onError={() => setFailed(true)}
+          className="h-full w-full object-cover object-top"
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center pb-24">
+          <span className="aa-display text-8xl text-[#E5007D]/60">
+            {String(name || "P").charAt(0).toUpperCase()}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -72,29 +261,55 @@ function getTeamLogo(team, state) {
   );
 }
 
-/* Leading-team capsule under the player role: team logo + team name.
+/* Leading-team capsule under the player: team logo + team name.
    Always rendered; shows "Awaiting bids" until a team is leading. */
 function LeadingTeamBadge({ name, logoUrl }) {
   const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [logoUrl]);
+
   const showLogo = logoUrl && !failed;
 
   return (
-    <div className="mt-4 inline-flex max-w-full items-center gap-3 rounded-xl border border-white/70 bg-black/45 py-1.5 pl-2 pr-5 shadow-[0_0_24px_rgba(229,0,125,0.35)] backdrop-blur-md sm:mt-5">
+    <div className="mt-3 flex w-full max-w-[340px] items-center gap-3 rounded-2xl border border-white/25 bg-black/50 py-2 pl-2.5 pr-5 shadow-[0_0_24px_rgba(229,0,125,0.35)] backdrop-blur-md sm:mt-4">
       {showLogo ? (
         <img
           src={logoUrl}
           alt={name}
           draggable="false"
           onError={() => setFailed(true)}
-          className="h-9 w-9 shrink-0 rounded-full object-cover sm:h-11 sm:w-11"
+          className="h-11 w-11 shrink-0 rounded-full object-cover sm:h-12 sm:w-12"
         />
       ) : (
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#E5007D]/20 sm:h-11 sm:w-11">
-          <Users className="h-4 w-4 text-[#E5007D]" />
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#E5007D]/25 sm:h-12 sm:w-12">
+          <Users className="h-5 w-5 text-[#ff5db8]" />
         </span>
       )}
-      <span className="aa-display truncate text-lg uppercase italic tracking-wide text-white sm:text-2xl">
+      <span className="aa-display min-w-0 flex-1 truncate text-center text-xl uppercase italic tracking-wide text-white sm:text-2xl">
         {name || "Awaiting bids"}
+      </span>
+    </div>
+  );
+}
+
+/* One tile in the Player Stats panel. */
+function StatTile({ label, value }) {
+  const text = String(value ?? "-");
+  const isLong = text.length > 5;
+
+  return (
+    <div className="flex min-w-0 flex-col items-center justify-between gap-1.5 rounded-2xl border border-[#E5007D]/35 bg-black/30 px-1.5 py-3">
+      <span className="text-center text-[9px] font-black uppercase leading-tight tracking-wide text-white/85 sm:text-[10px]">
+        {label}
+      </span>
+      <span
+        className={`aa-display max-w-full break-words text-center leading-none text-[#ff2e9a] ${
+          isLong ? "text-xl sm:text-2xl" : "text-3xl sm:text-4xl"
+        }`}
+      >
+        {text}
       </span>
     </div>
   );
@@ -128,6 +343,9 @@ function SponsorLogo({ url }) {
   );
 }
 
+const PANEL =
+  "rounded-2xl border border-[#E5007D]/45 bg-gradient-to-br from-[#2b0a25]/80 to-[#12040f]/85 shadow-[0_0_44px_rgba(229,0,125,0.28)] backdrop-blur-md";
+
 export default function PublicLiveView() {
   const { publicSlug } = useParams();
   const [auction, setAuction] = useState(null);
@@ -149,6 +367,8 @@ export default function PublicLiveView() {
       jersey_number: state.jersey_number ?? state.player_number,
     };
   }, [state]);
+
+  const playerStats = useMemo(() => resolveStats(state), [state]);
 
   const loadAuction = useCallback(async () => {
     try {
@@ -232,7 +452,7 @@ export default function PublicLiveView() {
   const basePrice = Number(currentPlayer?.base_price || 0);
   const currentBid = Number(state?.current_bid || basePrice || 0);
 
-  /* Teams are only used to look up the leading team's name/logo now. */
+  /* Teams are only used to look up the leading team's name/logo. */
   const teams = snapshot?.teamsSummary?.length
     ? snapshot.teamsSummary
     : auction?.teams?.length
@@ -272,130 +492,147 @@ export default function PublicLiveView() {
 
       <CelebrationOverlay celebration={celebration} />
 
-      {/* =====================================================================
-          One full-screen stage: header, centered player, bid, sponsor
-          ===================================================================== */}
       <section className="relative isolate flex min-h-[100svh] w-full flex-1 flex-col overflow-hidden bg-[#0B0F1A] bg-[url('/publicView-bg.png')] bg-cover bg-center bg-no-repeat">
         {/* Scrims: keep the stadium visible but let text stay readable */}
         <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-[#0B0F1A]/70 via-[#0B0F1A]/35 to-[#0B0F1A]/85" />
         <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_50%_50%,rgba(229,0,125,0.30),transparent_62%)]" />
 
-        {/* Glowing stage ring under the bid panel */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-[6%] -z-10 flex justify-center">
-          <div className="h-16 w-[92%] max-w-[1100px] rounded-[50%] border border-[#E5007D]/60 bg-[#E5007D]/10 shadow-[0_0_70px_rgba(229,0,125,0.55)] sm:h-24 md:h-28" />
-        </div>
-
-        <div className="relative mx-auto flex w-full max-w-[1600px] flex-1 flex-col px-4 py-5 md:px-8 md:py-7">
-          {/* ---------------- HEADER ---------------- */}
-          <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            {/* LEFT: Logo / wordmark + season label */}
-            <div className="flex min-w-0 items-center gap-3">
-              {auction?.auction_logo_url ? (
-                <img src={auction.auction_logo_url} alt="Auction Logo" className="h-14 w-auto object-contain" />
-              ) : (
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#E5007D]/15">
-                  <Gavel className="h-6 w-6 -rotate-45 text-[#E5007D]" />
-                </div>
-              )}
+        {/* Header, main stage and sponsors stay in natural DOM order on every screen size */}
+        <div className="relative mx-auto flex w-full max-w-[1700px] flex-1 flex-col gap-5 px-4 py-5 md:px-8 md:py-7">
+          {/* =================== HEADER (always at the top) =================== */}
+          <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            {/* LEFT: logo | wordmark + season label */}
+            <div className="flex min-w-0 flex-wrap items-center gap-3 sm:gap-4">
+              <AuctionLogoBox url={auction?.auction_logo_url} />
+              <span className="hidden h-12 w-px shrink-0 bg-white/25 sm:block" />
               <div className="min-w-0">
-                <div className="aa-display truncate text-3xl uppercase leading-none tracking-tight sm:text-4xl">
-                  <span className="text-[#E5007D]">Auction</span> <span className="text-white">Arena</span>
+                <div className="aa-display truncate text-4xl uppercase leading-none tracking-tight sm:text-5xl">
+                  <span className="text-[#ff1f9f]">Auction</span> <span className="text-white">Arena</span>
                 </div>
-                <div className="mt-1.5 flex items-center gap-2">
-                  <span className="truncate text-[11px] font-bold uppercase tracking-[0.25em] text-white/60 sm:text-xs">
+                <div className="mt-2 flex items-center gap-3">
+                  <span className="h-px w-6 shrink-0 bg-white/30 sm:w-10" />
+                  <span className="truncate text-[11px] font-bold uppercase tracking-[0.3em] text-white/75 sm:text-xs">
                     {seasonLabel}
                   </span>
-                  <span className="h-px w-8 shrink-0 bg-white/20" />
+                  <span className="h-px w-6 shrink-0 bg-white/30 sm:w-10" />
                 </div>
               </div>
             </div>
 
             {/* RIGHT: tagline + status pills */}
-            <div className="flex flex-col items-start gap-2 sm:items-end">
-              <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/60 sm:text-xs">
+            <div className="flex flex-col items-start gap-3 lg:items-end">
+              <div className="text-[10px] font-bold uppercase tracking-[0.35em] text-white/75 sm:text-xs">
                 Players &middot; Passion &middot; Bigger Dreams
               </div>
-              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                 <a
                   href={`/live/${publicSlug}/dashboard`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-black/40 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-white/70 backdrop-blur-md transition-colors hover:border-[#E5007D] hover:text-[#E5007D]"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-black/50 px-4 py-1.5 text-[10px] font-black uppercase tracking-widest text-white backdrop-blur-md transition-colors hover:border-[#E5007D] hover:text-[#ff5db8] sm:text-xs"
                 >
                   Public Dashboard
                 </a>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-black/40 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-white/80 backdrop-blur-md">
-                  <span className="relative flex h-1.5 w-1.5">
+                <span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-black/50 px-4 py-1.5 text-[10px] font-black uppercase tracking-widest text-white backdrop-blur-md sm:text-xs">
+                  <span className="relative flex h-2 w-2">
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
-                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
                   </span>
                   Live View
                 </span>
-                <span className="inline-flex items-center rounded-full border border-white/15 bg-black/40 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-white/50 backdrop-blur-md">
+                <span className="inline-flex items-center rounded-full border border-white/25 bg-black/50 px-4 py-1.5 text-[10px] font-black uppercase tracking-widest text-white/90 backdrop-blur-md sm:text-xs">
                   #{auction?.auction_code || publicSlug}
                 </span>
               </div>
             </div>
           </header>
 
-          {/* ---------------- CENTERED PLAYER STAGE ---------------- */}
-          <div className="flex flex-1 flex-col items-center justify-center py-4 text-center">
-            {/* Player photo — blends down into the name */}
-            <div className="relative flex h-[clamp(230px,38vh,440px)] w-full items-end justify-center">
-              <PlayerPhoto
-                url={currentPlayer?.photo_url}
-                name={currentPlayer?.player_name}
-                className="h-full w-auto max-w-full object-contain object-bottom"
-              />
-            </div>
+          {/* =================== MAIN STAGE =================== */}
+          <main className="grid flex-1 grid-cols-1 items-center gap-4 md:grid-cols-2 md:gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,380px)_minmax(0,1fr)] lg:gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,440px)_minmax(0,1fr)]">
+            {/* ---------- CENTER: photo + name + leading team ---------- */}
+            <div className="order-1 flex w-full flex-col items-center md:col-span-2 lg:order-2 lg:col-span-1">
+              <div className="relative w-full max-w-[320px] sm:max-w-[360px] lg:max-w-none">
+                <PlayerPhoto
+                  url={currentPlayer?.photo_url}
+                  name={currentPlayer?.player_name}
+                  className="aspect-[4/5] w-full lg:max-h-[55svh]"
+                />
 
-            {/* Name block overlaps the faded bottom of the photo */}
-            <div className="relative z-10 -mt-10 flex w-full flex-col items-center sm:-mt-14 md:-mt-16">
-              <span className="inline-flex w-fit items-center rounded-full bg-[#E5007D] px-5 py-1.5 text-[10px] font-black uppercase tracking-[0.2em] text-white shadow-[0_0_24px_rgba(229,0,125,0.6)] sm:text-xs">
-                Current Player
-              </span>
-
-              <h1 className="aa-display mt-3 max-w-full break-words text-[clamp(38px,6vw,92px)] uppercase leading-[0.95] tracking-tight text-white [text-shadow:0_4px_24px_rgba(0,0,0,0.55)] sm:mt-4">
-                {currentPlayer?.player_name || "Waiting for player..."}
-                {currentPlayer?.jersey_number ? <span>{currentPlayer.jersey_number}</span> : null}
-              </h1>
-
-              <div className="mt-1 flex flex-wrap items-center justify-center gap-2.5">
-                {currentPlayer?.player_role && (
-                  <span className="aa-display text-lg uppercase tracking-wide text-white/75 sm:text-2xl">
-                    {currentPlayer.player_role}
+                {/* Name block overlaid on the faded bottom of the photo */}
+                <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col items-center px-2 pb-2 text-center">
+                  <span className="inline-flex w-fit items-center rounded-full bg-[#E5007D] px-5 py-1.5 text-[10px] font-black uppercase tracking-[0.25em] text-white shadow-[0_0_24px_rgba(229,0,125,0.6)] sm:text-xs">
+                    Current Player
                   </span>
-                )}
-                {currentPlayer?.category && (
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#E5007D] text-[10px] font-black text-white sm:h-7 sm:w-7 sm:text-xs">
-                    {currentPlayer.category}
-                  </span>
-                )}
+
+                  <h1 className="aa-display mt-2 max-w-full break-words text-[clamp(40px,11vw,64px)] uppercase leading-[0.95] tracking-tight text-white [text-shadow:0_4px_24px_rgba(0,0,0,0.65)] md:text-[clamp(44px,6vw,72px)] lg:text-[clamp(44px,4.6vw,88px)]">
+                    {currentPlayer?.player_name || "Waiting for player..."}
+                    {currentPlayer?.jersey_number ? (
+                      <span className="ml-3 text-[#ff2e9a]">{currentPlayer.jersey_number}</span>
+                    ) : null}
+                  </h1>
+
+                  {(currentPlayer?.player_role || currentPlayer?.category) && (
+                    <div className="mt-1.5 flex flex-wrap items-center justify-center gap-2">
+                      {currentPlayer?.player_role && (
+                        <span className="aa-display text-lg uppercase tracking-wide text-white/75 sm:text-2xl">
+                          {currentPlayer.player_role}
+                        </span>
+                      )}
+                      {/* Pill grows with its text, so long categories never overflow the pink background */}
+                      {currentPlayer?.category && (
+                        <span className="inline-flex min-h-[1.5rem] min-w-[1.5rem] items-center justify-center whitespace-nowrap rounded-full bg-[#E5007D] px-2.5 py-0.5 text-[10px] font-black uppercase leading-none tracking-wider text-white shadow-[0_0_14px_rgba(229,0,125,0.6)] sm:text-xs">
+                          {currentPlayer.category}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Leading team: logo + name */}
               <LeadingTeamBadge name={leadingTeamName} logoUrl={leadingTeamLogo} />
+            </div>
 
-              {/* Current Bid panel */}
-              <div className="mt-4 w-full max-w-[300px] rounded-2xl border border-[#E5007D]/70 bg-gradient-to-b from-[#2b0a25]/85 to-[#12040f]/90 px-4 py-4 shadow-[0_0_44px_rgba(229,0,125,0.35)] backdrop-blur-md min-[420px]:max-w-[380px] sm:mt-5 sm:max-w-[480px] md:max-w-[560px]">
-                <div className="flex items-center justify-center gap-2 text-[11px] font-black uppercase tracking-[0.25em] text-white/80 sm:text-sm">
-                  <Gavel className="h-4 w-4 -rotate-45 text-[#E5007D]" />
-                  <span>Current Bid</span>
-                </div>
-                <div className="aa-display mt-1 text-[clamp(52px,7.2vw,112px)] leading-none text-[#E5007D] [text-shadow:0_0_28px_rgba(229,0,125,0.45)]">
-                  ₹{formatAmount(currentBid)}
-                </div>
-                <div className="mt-2 text-[9px] font-black uppercase tracking-[0.25em] text-white/60 sm:text-[10px]">
+            {/* ---------- CURRENT BID (2nd on mobile, right on desktop) ---------- */}
+            <div
+              className={`${PANEL} order-2 mx-auto w-full max-w-[520px] p-4 sm:p-5 md:order-3 md:max-w-none lg:order-3`}
+            >
+              <div className="flex items-center justify-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-white sm:text-sm lg:justify-start">
+                <Gavel className="h-4 w-4 shrink-0 -rotate-45 text-[#ff2e9a]" />
+                <span>Current Bid</span>
+              </div>
+
+              <div className="aa-display mt-2 max-w-full text-center text-[clamp(48px,13vw,80px)] leading-none text-[#ff1f9f] [text-shadow:0_0_28px_rgba(229,0,125,0.5)] md:text-[clamp(40px,5.2vw,64px)] lg:text-left lg:text-[clamp(40px,4.6vw,104px)]">
+                ₹{formatAmount(currentBid)}
+              </div>
+
+              <div className="my-3 h-px w-full bg-white/15 sm:my-4" />
+
+              <div className="text-center lg:text-left">
+                <div className="text-[10px] font-black uppercase tracking-[0.2em] text-white/60 sm:text-xs">
                   Base Price
                 </div>
-                <div className="aa-display text-2xl leading-tight text-white sm:text-3xl">
+                <div className="aa-display mt-0.5 text-2xl leading-tight text-white sm:text-3xl">
                   ₹{formatAmount(basePrice)}
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* ---------------- POWERED BY (always shown) ---------------- */}
+            {/* ---------- PLAYER STATS (3rd on mobile, left on desktop) ---------- */}
+            <div className={`${PANEL} order-3 mx-auto w-full max-w-[520px] p-4 sm:p-5 md:order-2 md:max-w-none lg:order-1`}>
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs font-black uppercase tracking-[0.2em] text-white sm:mb-4 sm:text-sm">
+                <Trophy className="h-4 w-4 shrink-0 text-[#ff2e9a]" />
+                Player Stats
+              </div>
+
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(84px,1fr))] gap-2.5">
+                {playerStats.map((stat, i) => (
+                  <StatTile key={`${stat.label}-${i}`} label={stat.label} value={stat.value} />
+                ))}
+              </div>
+            </div>
+          </main>
+
+          {/* =================== POWERED BY =================== */}
           <div className="relative z-10 flex flex-col items-center gap-2 pb-1">
             <div className="flex w-full max-w-md items-center gap-3 text-[9px] font-bold uppercase tracking-[0.3em] text-white/70 sm:text-[10px]">
               <span className="h-px flex-1 bg-white/25" />

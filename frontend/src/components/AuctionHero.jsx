@@ -56,9 +56,10 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
   const jersey = state?.jersey_number ?? state?.player_number;
   const role = state?.player_role || state?.batting_style || "";
 
-  // Hide the category badge when it just repeats the role (e.g. "batsman" / "BATSMAN")
-  const category = state?.category ? String(state.category) : "";
-  const showCategory = category && category.trim().toLowerCase() !== String(role).trim().toLowerCase();
+  // Category is always shown when present (same as the live view),
+  // even if it has the same text as the role.
+  const category = state?.category ? String(state.category).trim() : "";
+  const showCategory = !!category;
 
   const playerInfoHtml = state?.player_info;
 
@@ -226,7 +227,7 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
             {jersey ? <span className="ml-2">{jersey}</span> : null}
           </h2>
 
-          {/* Role + category badges: white text on pink */}
+          {/* Role + category badges: white text on pink (category always shown, like the live view) */}
           {(role || showCategory) && (
             <div className="mt-3 flex flex-wrap items-center justify-center gap-2 md:justify-start">
               {role && (
@@ -235,7 +236,7 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
                 </span>
               )}
               {showCategory && (
-                <span className="flex h-7 min-w-[28px] items-center justify-center rounded-full bg-[#EC008C] px-2.5 text-xs font-black uppercase text-white shadow-md shadow-[#EC008C]/30">
+                <span className="inline-flex min-h-[1.75rem] min-w-[1.75rem] items-center justify-center whitespace-nowrap rounded-full bg-[#EC008C] px-2.5 py-1 text-xs font-black uppercase leading-none text-white shadow-md shadow-[#EC008C]/30">
                   {category}
                 </span>
               )}
