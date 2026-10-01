@@ -33,14 +33,16 @@ function PlayerPhoto({ url, name }) {
   );
 }
 
-/* Rich text player info */
+/* Rich text player info — same plum panel + pink accent as the bid panel */
 function PlayerInfoBox({ htmlContent, className = "" }) {
   if (!htmlContent) return null;
   return (
-    <div className={`w-full rounded-xl border border-white/15 bg-black/35 p-4 text-white backdrop-blur-md ${className}`}>
-      <div 
-        className="rich-text-content max-w-none"
-        dangerouslySetInnerHTML={{ __html: htmlContent }} 
+    <div
+      className={`w-full overflow-hidden rounded-2xl border border-white/10 border-t-4 border-t-[#EC008C] bg-[#2b0d29]/90 p-4 text-white shadow-2xl backdrop-blur-md sm:p-5 ${className}`}
+    >
+      <div
+        className="rich-text-content max-w-none overflow-x-auto"
+        dangerouslySetInnerHTML={{ __html: htmlContent }}
       />
     </div>
   );
@@ -54,6 +56,10 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
   const jersey = state?.jersey_number ?? state?.player_number;
   const role = state?.player_role || state?.batting_style || "";
 
+  // Hide the category badge when it just repeats the role (e.g. "batsman" / "BATSMAN")
+  const category = state?.category ? String(state.category) : "";
+  const showCategory = category && category.trim().toLowerCase() !== String(role).trim().toLowerCase();
+
   const playerInfoHtml = state?.player_info;
 
   return (
@@ -61,39 +67,103 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Anton&display=swap');
         .aa-display { font-family: 'Anton', 'Archivo Black', ui-sans-serif, system-ui, sans-serif; }
-        
+
+        /* ---------- Rich text player info ---------- */
         .rich-text-content {
-          text-align: center;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
           width: 100%;
+          text-align: left;
+          font-size: 0.9rem;
+          line-height: 1.55;
+          color: rgba(255, 255, 255, 0.92);
         }
+        .rich-text-content > :first-child { margin-top: 0; }
+        .rich-text-content > :last-child { margin-bottom: 0; }
+
+        .rich-text-content p { margin: 0.35rem 0; }
+        .rich-text-content strong, .rich-text-content b { color: #ff7cc6; font-weight: 800; }
+        .rich-text-content a { color: #8DC63F; text-decoration: underline; text-underline-offset: 3px; }
+
+        .rich-text-content h1, .rich-text-content h2, .rich-text-content h3 {
+          margin: 0.75rem 0 0.4rem;
+          font-weight: 900;
+          line-height: 1.15;
+          text-transform: uppercase;
+          letter-spacing: 0.02em;
+          color: #fff;
+        }
+        .rich-text-content h1 { font-size: 1.25rem; }
+        .rich-text-content h2 { font-size: 1.1rem; }
+        .rich-text-content h3 { font-size: 0.95rem; color: #ff7cc6; }
+
+        /* Bullet lists become wrapping stat chips (e.g. "match:10") */
+        .rich-text-content ul {
+          list-style: none;
+          margin: 0.4rem 0;
+          padding: 0;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+        }
+        .rich-text-content ul li {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.5rem;
+          margin: 0;
+          padding: 0.35rem 0.8rem;
+          border-radius: 9999px;
+          border: 1px solid rgba(236, 0, 140, 0.5);
+          background: rgba(236, 0, 140, 0.18);
+          font-size: 0.8rem;
+          font-weight: 700;
+          color: #fff;
+        }
+        .rich-text-content ul li::before {
+          content: "";
+          width: 6px;
+          height: 6px;
+          flex-shrink: 0;
+          border-radius: 9999px;
+          background: #ff1f9f;
+          box-shadow: 0 0 8px rgba(255, 31, 159, 0.8);
+        }
+
+        /* Numbered lists keep their numbers, in pink */
+        .rich-text-content ol {
+          margin: 0.4rem 0;
+          padding-left: 1.4rem;
+          list-style: decimal;
+        }
+        .rich-text-content ol li { margin: 0.2rem 0; padding-left: 0.25rem; }
+        .rich-text-content ol li::marker { color: #ff1f9f; font-weight: 800; }
+
+        /* Tables */
         .rich-text-content table {
           width: 100%;
-          border-collapse: collapse;
+          min-width: 280px;
           margin: 0.5rem 0;
+          border-collapse: separate;
+          border-spacing: 0;
+          overflow: hidden;
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          border-radius: 0.75rem;
         }
         .rich-text-content th, .rich-text-content td {
-          border: 1px solid rgba(255, 255, 255, 0.2);
-          padding: 8px 12px;
+          padding: 0.5rem 0.75rem;
           text-align: center;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
+        .rich-text-content th + th, .rich-text-content td + td {
+          border-left: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .rich-text-content tr:last-child td { border-bottom: 0; }
         .rich-text-content th {
-          background-color: rgba(255, 255, 255, 0.1);
-          font-weight: 700;
+          background: rgba(236, 0, 140, 0.35);
+          font-size: 0.75rem;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
         }
-        .rich-text-content ul, .rich-text-content ol {
-          text-align: left;
-          padding-left: 1.5rem;
-          margin: 0.5rem 0;
-          list-style: disc;
-        }
-        .rich-text-content h1, .rich-text-content h2, .rich-text-content h3 {
-          font-weight: bold;
-          margin: 0.5rem 0;
-        }
+        .rich-text-content tbody tr:nth-child(even) td { background: rgba(255, 255, 255, 0.04); }
       `}</style>
 
       {/* ============ HEADER ============ */}
@@ -153,16 +223,24 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
           </span>
           <h2 className="aa-display mt-3 break-words text-[clamp(38px,6vw,68px)] uppercase leading-none text-pink [text-shadow:0_4px_24px_rgba(0,0,0,.4)]">
             {hasPlayer ? state.player_name : "Waiting for player..."}
-            {jersey ? <span>{jersey}</span> : null}
+            {jersey ? <span className="ml-2">{jersey}</span> : null}
           </h2>
-          <div className="mt-2 flex items-center gap-2">
-            {role && <span className="text-sm font-extrabold uppercase text-black sm:text-base">{role}</span>}
-            {state?.category && (
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#EC008C] text-xs font-black text-white">
-                {state.category}
-              </span>
-            )}
-          </div>
+
+          {/* Role + category badges: white text on pink */}
+          {(role || showCategory) && (
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-2 md:justify-start">
+              {role && (
+                <span className="rounded-full bg-[#EC008C] px-4 py-1.5 text-xs font-black uppercase tracking-wider text-white shadow-md shadow-[#EC008C]/30 sm:text-sm">
+                  {role}
+                </span>
+              )}
+              {showCategory && (
+                <span className="flex h-7 min-w-[28px] items-center justify-center rounded-full bg-[#EC008C] px-2.5 text-xs font-black uppercase text-white shadow-md shadow-[#EC008C]/30">
+                  {category}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Tablet / laptop player info (hidden on mobile) */}
           <PlayerInfoBox htmlContent={playerInfoHtml} className="mt-4 hidden md:block" />
