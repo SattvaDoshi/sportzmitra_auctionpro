@@ -163,14 +163,25 @@ function parseStats(raw) {
 function resolveStats(state) {
   if (state) {
     for (const key of STAT_SOURCE_KEYS) {
-      const parsed = parseStats(state[key]);
-      if (parsed.length) return parsed;
+      const raw = state[key];
+      if (raw == null || raw === "") continue;
+
+      if (typeof raw === "string") {
+        const str = raw.trim();
+        if ((str.startsWith("<") || /<[a-z][\s\S]*>/i.test(str)) && !str.startsWith("[") && !str.startsWith("{")) {
+          return { isHtml: true, data: str };
+        }
+      }
+
+      const parsed = parseStats(raw);
+      if (parsed.length) return { isHtml: false, data: parsed };
     }
   }
-  return DEFAULT_STAT_DEFS.map((def) => {
+  const defs = DEFAULT_STAT_DEFS.map((def) => {
     const found = state ? def.keys.find((k) => state[k] != null && state[k] !== "") : null;
     return { label: def.label, value: found ? cleanCell(state[found]) : "-" };
   });
+  return { isHtml: false, data: defs };
 }
 
 /* Loads the display typeface used across every headline/number in the
@@ -181,6 +192,103 @@ function DisplayFontLoader() {
     <style>{`
       @import url('https://fonts.googleapis.com/css2?family=Anton&display=swap');
       .aa-display { font-family: 'Anton', 'Archivo Black', ui-sans-serif, system-ui, sans-serif; }
+
+      /* ---------- Rich text player info ---------- */
+      .rich-text-content {
+        width: 100%;
+        text-align: left;
+        font-size: 0.9rem;
+        line-height: 1.55;
+        color: rgba(255, 255, 255, 0.92);
+      }
+      .rich-text-content > :first-child { margin-top: 0; }
+      .rich-text-content > :last-child { margin-bottom: 0; }
+
+      .rich-text-content p { margin: 0.35rem 0; }
+      .rich-text-content strong, .rich-text-content b { color: #ff2e9a; font-weight: 800; }
+      .rich-text-content a { color: #8DC63F; text-decoration: underline; text-underline-offset: 3px; }
+
+      .rich-text-content h1, .rich-text-content h2, .rich-text-content h3 {
+        margin: 0.75rem 0 0.4rem;
+        font-weight: 900;
+        line-height: 1.15;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+        color: #fff;
+      }
+      .rich-text-content h1 { font-size: 1.25rem; }
+      .rich-text-content h2 { font-size: 1.1rem; }
+      .rich-text-content h3 { font-size: 0.95rem; color: #ff2e9a; }
+
+      /* Bullet lists become wrapping stat chips (e.g. "match:10") */
+      .rich-text-content ul {
+        list-style: none;
+        margin: 0.4rem 0;
+        padding: 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      .rich-text-content ul li {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 0;
+        padding: 0.35rem 0.8rem;
+        border-radius: 9999px;
+        border: 1px solid rgba(229, 0, 125, 0.5);
+        background: rgba(229, 0, 125, 0.18);
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #fff;
+      }
+      .rich-text-content ul li::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        flex-shrink: 0;
+        border-radius: 9999px;
+        background: #ff2e9a;
+        box-shadow: 0 0 8px rgba(255, 46, 154, 0.8);
+      }
+
+      /* Numbered lists keep their numbers, in pink */
+      .rich-text-content ol {
+        margin: 0.4rem 0;
+        padding-left: 1.4rem;
+        list-style: decimal;
+      }
+      .rich-text-content ol li { margin: 0.2rem 0; padding-left: 0.25rem; }
+      .rich-text-content ol li::marker { color: #ff2e9a; font-weight: 800; }
+
+      /* Tables */
+      .rich-text-content table {
+        width: 100%;
+        min-width: 280px;
+        margin: 0.5rem 0;
+        border-collapse: separate;
+        border-spacing: 0;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 0.75rem;
+      }
+      .rich-text-content th, .rich-text-content td {
+        padding: 0.5rem 0.75rem;
+        text-align: center;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .rich-text-content th + th, .rich-text-content td + td {
+        border-left: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .rich-text-content tr:last-child td { border-bottom: 0; }
+      .rich-text-content th {
+        background: rgba(229, 0, 125, 0.35);
+        font-size: 0.75rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .rich-text-content tbody tr:nth-child(even) td { background: rgba(255, 255, 255, 0.04); }
     `}</style>
   );
 }
@@ -432,7 +540,7 @@ export default function PublicLiveView() {
     };
   }, [state]);
 
-  const playerStats = useMemo(() => resolveStats(state), [state]);
+  const resolvedStats = useMemo(() => resolveStats(state), [state]);
 
   const loadAuction = useCallback(async () => {
     try {
@@ -455,7 +563,12 @@ export default function PublicLiveView() {
   useEffect(() => {
     if (!auction?.id) return;
 
-    socket.emit("joinPublicAuction", { auctionId: auction.id, publicSlug });
+    const joinRoom = () => {
+      socket.emit("joinPublicAuction", { auctionId: auction.id, publicSlug });
+    };
+
+    joinRoom(); // Initial join
+    socket.on("connect", joinRoom); // Re-join on reconnect
 
     const handleSnapshotUpdated = (payload) => {
       if (payload?.auction?.id === auction.id || payload?.auctionId === auction.id) {
@@ -497,6 +610,7 @@ export default function PublicLiveView() {
     socket.on("playerFinalUnsold", handlePlayerUnsold);
 
     return () => {
+      socket.off("connect", joinRoom);
       socket.off("auctionSnapshotUpdated", handleSnapshotUpdated);
       socket.off("playerSold", handlePlayerSold);
       socket.off("playerUnsold", handlePlayerUnsold);
