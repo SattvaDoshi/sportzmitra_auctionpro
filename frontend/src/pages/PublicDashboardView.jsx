@@ -1,3 +1,4 @@
+// ===================== PublicDashboardView.jsx =====================
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -40,7 +41,6 @@ export default function PublicDashboardView() {
 
   const auctionIdRef = useRef(null);
   const debounceRef = useRef(null);
-  const tabsRef = useRef(null);
 
   async function loadInitialSnapshot() {
     try {
@@ -165,12 +165,6 @@ export default function PublicDashboardView() {
     if (currentPage < totalPages) setCurrentPage((prev) => prev + 1);
   };
 
-  const scrollTabs = (dir) => {
-    const el = tabsRef.current;
-    if (!el) return;
-    el.scrollBy({ left: dir * 130, behavior: "smooth" });
-  };
-
   if (error) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 p-6 text-center font-sans">
@@ -194,11 +188,12 @@ export default function PublicDashboardView() {
 
   const { auction, dashboardSummary = {} } = data;
 
+  // label = tablet/laptop text, mobileLabel = mobile-only short text
   const tabDefs = [
-    { key: "teams", label: "TEAMS OVERVIEW", Icon: Shield, count: null },
-    { key: "sold", label: "SOLD PLAYERS", Icon: UserCheck, count: data.soldPlayers?.length || 0 },
-    { key: "unsold", label: "UNSOLD PLAYERS", Icon: UserMinus, count: data.unsoldPlayers?.length || 0 },
-    { key: "pending", label: "PENDING POOL", Icon: Clock, count: data.pendingPlayers?.length || 0 },
+    { key: "teams", label: "TEAMS OVERVIEW", mobileLabel: "Teams", Icon: Shield, count: null },
+    { key: "sold", label: "SOLD PLAYERS", mobileLabel: "Sold", Icon: UserCheck, count: data.soldPlayers?.length || 0 },
+    { key: "unsold", label: "UNSOLD PLAYERS", mobileLabel: "Unsold", Icon: UserMinus, count: data.unsoldPlayers?.length || 0 },
+    { key: "pending", label: "PENDING POOL", mobileLabel: "Pending", Icon: Clock, count: data.pendingPlayers?.length || 0 },
   ];
 
   return (
@@ -219,49 +214,39 @@ export default function PublicDashboardView() {
         {/* Main Dashboard Container */}
         <section className="mt-4 sm:mt-5 rounded-2xl border border-slate-200/80 bg-white p-3 sm:p-4 shadow-sm">
           {/* Navigation Bar & Controls */}
-          <div className="mb-5 sm:mb-6 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-            {/* View Tabs — 3 fit at a time on mobile; pink arrow scrolls to the rest */}
-            <div className="flex w-full items-center gap-1.5 lg:w-auto">
-              <div
-                ref={tabsRef}
-                className="no-scrollbar flex flex-1 items-center gap-1.5 overflow-x-auto scroll-smooth px-1 lg:flex-none"
-              >
-                {tabDefs.map(({ key, label, Icon, count }) => (
-                  <button
-                    key={key}
-                    onClick={() => {
-                      setActiveTab(key);
-                      setCurrentPage(1);
-                    }}
-                    className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl px-2.5 sm:px-4 py-2 sm:py-2.5 text-[10px] sm:text-xs font-black uppercase tracking-wider transition ${
-                      activeTab === key
-                        ? "bg-[#EC008C] text-white shadow-md shadow-[#EC008C]/20"
-                        : "text-slate-500 hover:bg-slate-100"
-                    }`}
-                  >
-                    <Icon size={14} className="shrink-0" />
-                    <span className="max-w-[58px] truncate sm:max-w-none">{label}</span>
-                    {count !== null && <span className="shrink-0">({count})</span>}
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={() => scrollTabs(1)}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#EC008C] text-white shadow-sm active:scale-95 lg:hidden"
-                aria-label="Show more tabs"
-              >
-                <ChevronRight size={16} />
-              </button>
+          <div className="mb-5 sm:mb-6 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 sm:gap-4 border-b border-slate-100 pb-4">
+            {/* View Tabs — all 4 always visible, no scrolling.
+                Mobile: text only (Teams / Sold (n) / Unsold (n) / Pending (n)).
+                Tablet+: icon + full label. */}
+            <div className="grid w-full grid-cols-4 gap-1 sm:flex sm:w-auto sm:items-center sm:gap-1.5">
+              {tabDefs.map(({ key, label, mobileLabel, Icon, count }) => (
+                <button
+                  key={key}
+                  onClick={() => {
+                    setActiveTab(key);
+                    setCurrentPage(1);
+                  }}
+                  className={`flex min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-1 py-2 text-[11px] font-black tracking-tight transition sm:px-4 sm:py-2.5 sm:text-xs sm:uppercase sm:tracking-wider ${
+                    activeTab === key
+                      ? "bg-[#EC008C] text-white shadow-md shadow-[#EC008C]/20"
+                      : "text-slate-500 hover:bg-slate-100"
+                  }`}
+                >
+                  <Icon size={14} className="hidden shrink-0 sm:block" />
+                  <span className="sm:hidden">{mobileLabel}</span>
+                  <span className="hidden sm:inline">{label}</span>
+                  {count !== null && <span className="shrink-0">({count})</span>}
+                </button>
+              ))}
             </div>
 
             {/* Controls (Category Selector, Search & Pagination Buttons) */}
-            <div className="flex items-center gap-3 w-full lg:w-auto justify-between lg:justify-end">
+            <div className="flex items-center gap-2 sm:gap-3 w-full lg:w-auto justify-between lg:justify-end">
               {activeTab !== "teams" && activeTab !== "category" && (
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-[#EC008C]"
+                  className="max-w-[40%] rounded-xl border border-slate-200 bg-slate-50 px-2 sm:px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-[#EC008C]"
                 >
                   {categories.map((c) => (
                     <option key={c} value={c}>
@@ -317,9 +302,9 @@ export default function PublicDashboardView() {
               onViewTeam={setViewingTeam}
             />
           )}
-          {activeTab === "sold" && <PlayerTable rows={filterRows(data.soldPlayers)} type="sold" />}
-          {activeTab === "unsold" && <PlayerTable rows={filterRows(data.unsoldPlayers)} type="unsold" />}
-          {activeTab === "pending" && <PlayerTable rows={filterRows(data.pendingPlayers)} type="pending" />}
+          {activeTab === "sold" && <PlayerList rows={filterRows(data.soldPlayers)} type="sold" />}
+          {activeTab === "unsold" && <PlayerList rows={filterRows(data.unsoldPlayers)} type="unsold" />}
+          {activeTab === "pending" && <PlayerList rows={filterRows(data.pendingPlayers)} type="pending" />}
           {activeTab === "category" && <CategorySummary rows={data.categorySummary || []} />}
         </section>
 
@@ -355,8 +340,6 @@ export default function PublicDashboardView() {
   );
 }
 
-/* Responsive grid view for Teams: 1 col mobile, 2 cols tablet, 3 on laptop, 4 on large desktop.
-   Card design lives in TeamOverviewCard.jsx so PublicLiveView renders the identical card. */
 /* Downloads a team's sold players as a CSV */
 function downloadTeamCsv(team, soldPlayers = []) {
   const players = soldPlayers.filter((p) => String(p.sold_team_id) === String(team.id));
@@ -399,7 +382,7 @@ function TeamsGrid({ rows = [], auction, soldPlayers = [], onViewTeam }) {
   );
 }
 
-/* Square (not circular) avatar used across the mobile-friendly player tables & modal */
+/* Square (not circular) avatar used across the player lists & modal */
 function SquareAvatar({ name, photoUrl, size = "sm" }) {
   const sizes = { xs: "h-8 w-8", sm: "h-10 w-10", md: "h-14 w-14" };
   const cls = sizes[size] || sizes.sm;
@@ -426,42 +409,111 @@ function SquareAvatar({ name, photoUrl, size = "sm" }) {
   );
 }
 
+/* Mobile: cards (no horizontal scroll). Tablet+: the original table.
+   Same fields as before: Player, Category, Acquired By / Base Price,
+   Final Price / Unsold Attempts, Role. */
+function PlayerList({ rows = [], type }) {
+  if (!rows.length) return <Empty text="No player data matching criteria" />;
+
+  return (
+    <>
+      <div className="sm:hidden">
+        <PlayerCards rows={rows} type={type} />
+      </div>
+      <div className="hidden sm:block">
+        <PlayerTable rows={rows} type={type} />
+      </div>
+    </>
+  );
+}
+
+function PlayerCards({ rows = [], type }) {
+  const isSold = type === "sold";
+  const labelCls = "text-[9px] font-black uppercase tracking-wider text-slate-400";
+
+  return (
+    <div className="grid gap-2.5">
+      {rows.map((p) => (
+        <div
+          key={p.id}
+          className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
+        >
+          {/* Player + 4th column (Final Price / Unsold Attempts) */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <SquareAvatar name={p.player_name} photoUrl={p.photo_url} size="sm" />
+              <div className="min-w-0">
+                <div className={labelCls}>Player</div>
+                <div className="truncate text-sm font-bold text-slate-900">{p.player_name}</div>
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              <div className={labelCls}>{isSold ? "Final Price" : "Unsold Attempts"}</div>
+              <div className="whitespace-nowrap text-sm font-black text-[#629221]">
+                {isSold ? `\u20B9${money(p.sold_price)}` : p.unsold_count || 0}
+              </div>
+            </div>
+          </div>
+
+          {/* Category | Acquired By / Base Price | Role */}
+          <div className="mt-2.5 grid grid-cols-3 gap-2 border-t border-slate-100 pt-2.5">
+            <div className="min-w-0">
+              <div className={labelCls}>Category</div>
+              <div className="mt-0.5 break-words text-[11px] font-semibold text-slate-600">
+                {p.category || "-"}
+              </div>
+            </div>
+            <div className="min-w-0">
+              <div className={labelCls}>{isSold ? "Acquired By" : "Base Price"}</div>
+              <div className="mt-0.5 break-words text-[11px] font-bold text-slate-800">
+                {isSold ? p.sold_team_name || "-" : `\u20B9${money(p.base_price)}`}
+              </div>
+            </div>
+            <div className="min-w-0">
+              <div className={labelCls}>Role</div>
+              <div className="mt-0.5 break-words text-[11px] font-semibold text-slate-600">
+                {p.player_role || "-"}
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function PlayerTable({ rows = [], type }) {
   if (!rows.length) return <Empty text="No player data matching criteria" />;
 
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-200">
-      <table className="w-full min-w-[560px] text-left text-[11px] sm:text-xs">
+      <table className="w-full min-w-[560px] text-left text-xs">
         <thead className="border-b border-slate-200 bg-slate-50 font-black uppercase tracking-wider text-slate-500">
           <tr>
-            <th className="p-2.5 sm:p-3.5">Player</th>
-            <th className="p-2.5 sm:p-3.5">Category</th>
-            <th className="p-2.5 sm:p-3.5">{type === "sold" ? "Acquired By" : "Base Price"}</th>
-            <th className="p-2.5 sm:p-3.5">{type === "sold" ? "Final Price" : "Unsold Attempts"}</th>
-            <th className="p-2.5 sm:p-3.5">Role</th>
+            <th className="p-3.5">Player</th>
+            <th className="p-3.5">Category</th>
+            <th className="p-3.5">{type === "sold" ? "Acquired By" : "Base Price"}</th>
+            <th className="p-3.5">{type === "sold" ? "Final Price" : "Unsold Attempts"}</th>
+            <th className="p-3.5">Role</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100 bg-white font-medium text-slate-700">
           {rows.map((p) => (
             <tr key={p.id} className="transition-colors hover:bg-slate-50">
-              <td className="p-2.5 sm:p-3.5">
-                <div className="flex min-w-0 max-w-[130px] items-center gap-2 sm:max-w-none sm:gap-3">
+              <td className="p-3.5">
+                <div className="flex min-w-0 items-center gap-3">
                   <SquareAvatar name={p.player_name} photoUrl={p.photo_url} size="xs" />
                   <span className="truncate font-bold text-slate-900">{p.player_name}</span>
                 </div>
               </td>
-              <td className="max-w-[80px] truncate p-2.5 text-slate-500 sm:max-w-none sm:p-3.5">
-                {p.category || "-"}
-              </td>
-              <td className="max-w-[100px] truncate p-2.5 font-bold text-slate-800 sm:max-w-none sm:p-3.5">
+              <td className="p-3.5 text-slate-500">{p.category || "-"}</td>
+              <td className="p-3.5 font-bold text-slate-800">
                 {type === "sold" ? p.sold_team_name || "-" : `\u20B9${money(p.base_price)}`}
               </td>
-              <td className="p-2.5 font-black text-[#629221] sm:p-3.5">
+              <td className="p-3.5 font-black text-[#629221]">
                 {type === "sold" ? `\u20B9${money(p.sold_price)}` : p.unsold_count || 0}
               </td>
-              <td className="max-w-[90px] truncate p-2.5 text-slate-500 sm:max-w-none sm:p-3.5">
-                {p.player_role || "-"}
-              </td>
+              <td className="p-3.5 text-slate-500">{p.player_role || "-"}</td>
             </tr>
           ))}
         </tbody>

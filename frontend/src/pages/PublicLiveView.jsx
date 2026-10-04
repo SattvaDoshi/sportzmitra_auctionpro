@@ -3,16 +3,21 @@ import { useParams } from "react-router-dom";
 import api from "../api/api";
 import { getImageUrl } from "../utils/imageUrl";
 import socket from "../utils/socket";
-import { Gavel, Users, Trophy } from "lucide-react";
+import { Gavel, Users } from "lucide-react";
 
 /**
  * PublicLiveView.jsx
  *
- * Layout
- *  - Header is always at the top on every screen size.
- *  - lg+      : header, then [ Player Stats | Photo + name | Current Bid ], sponsors at the bottom
- *  - md       : header, then photo + name on top, Player Stats and Current Bid side by side
- *  - mobile   : header -> photo + name -> Current Bid -> Player Stats -> sponsors
+ * Layout (matches the SportzMitra mockup)
+ *  - md+ (tablet / laptop):
+ *      header
+ *      [ Player photo (left) | Name + role/category + leading team + Current Bid (right) ]
+ *      full-width Player Stats strip (one row, vertical dividers)
+ *      sponsors
+ *  - mobile:
+ *      header -> photo with name overlay -> leading team -> Current Bid (base price inline)
+ *      -> Player Stats (3 x 2 tiles) -> sponsors
+ *  - Nothing is rendered below the stats except the sponsor strip.
  */
 
 function formatAmount(value) {
@@ -192,7 +197,7 @@ function AuctionLogoBox({ url }) {
   const showImg = url && !failed;
 
   return (
-    <div className="flex h-12 min-w-[150px] max-w-[220px] items-center justify-center rounded-lg border border-white/15 bg-white/5 px-3 py-1 backdrop-blur-sm sm:h-14 sm:max-w-[260px]">
+    <div className="flex h-9 min-w-[118px] max-w-[170px] items-center justify-center rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 backdrop-blur-sm sm:h-14 sm:min-w-[150px] sm:max-w-[260px] sm:px-3">
       {showImg ? (
         <img
           src={url}
@@ -211,8 +216,9 @@ function AuctionLogoBox({ url }) {
   );
 }
 
-/* Player card. The photo fills a portrait card and fades out at the bottom
-   so the name (overlaid by the parent) sits on the dark stadium behind it. */
+/* Player card. The photo fills the card and fades out at the bottom.
+   On mobile the name is overlaid on the faded bottom (by the parent);
+   on md+ the name sits in the right column instead. */
 function PlayerPhoto({ url, name, className = "" }) {
   const photo = getImageUrl(url);
   const [failed, setFailed] = useState(false);
@@ -221,12 +227,12 @@ function PlayerPhoto({ url, name, className = "" }) {
     setFailed(false);
   }, [photo]);
 
-  const mask = "linear-gradient(to bottom, #000 0%, #000 58%, transparent 100%)";
+  const mask = "linear-gradient(to bottom, #000 0%, #000 62%, transparent 100%)";
   const showImg = photo && !failed;
 
   return (
     <div
-      className={`relative overflow-hidden rounded-t-2xl bg-gradient-to-b from-[#ff8fd0]/55 via-[#E5007D]/30 to-[#E5007D]/5 ${className}`}
+      className={`relative overflow-hidden rounded-2xl bg-gradient-to-b from-[#ff8fd0]/55 via-[#E5007D]/30 to-[#E5007D]/5 ${className}`}
       style={{ WebkitMaskImage: mask, maskImage: mask }}
     >
       {showImg ? (
@@ -235,10 +241,10 @@ function PlayerPhoto({ url, name, className = "" }) {
           alt={name || "Player"}
           draggable="false"
           onError={() => setFailed(true)}
-          className="h-full w-full object-cover object-top"
+          className="absolute inset-0 h-full w-full object-cover object-top"
         />
       ) : (
-        <div className="flex h-full w-full items-center justify-center pb-24">
+        <div className="absolute inset-0 flex items-center justify-center pb-16">
           <span className="aa-display text-8xl text-[#E5007D]/60">
             {String(name || "P").charAt(0).toUpperCase()}
           </span>
@@ -261,9 +267,9 @@ function getTeamLogo(team, state) {
   );
 }
 
-/* Leading-team capsule under the player: team logo + team name.
-   Always rendered; shows "Awaiting bids" until a team is leading. */
-function LeadingTeamBadge({ name, logoUrl }) {
+/* Leading-team capsule: team logo + team name (replaces the flag + team line
+   in the mockup). Always rendered; shows "Awaiting bids" until a team leads. */
+function LeadingTeamBadge({ name, logoUrl, className = "" }) {
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -273,17 +279,19 @@ function LeadingTeamBadge({ name, logoUrl }) {
   const showLogo = logoUrl && !failed;
 
   return (
-    <div className="mt-3 flex w-full max-w-[340px] items-center gap-3 rounded-2xl border border-white/25 bg-black/50 py-2 pl-2.5 pr-5 shadow-[0_0_24px_rgba(229,0,125,0.35)] backdrop-blur-md sm:mt-4">
+    <div
+      className={`flex w-full max-w-[340px] items-center gap-3 rounded-2xl border border-white/25 bg-black/50 py-2 pl-2.5 pr-5 shadow-[0_0_24px_rgba(229,0,125,0.35)] backdrop-blur-md ${className}`}
+    >
       {showLogo ? (
         <img
           src={logoUrl}
           alt={name}
           draggable="false"
           onError={() => setFailed(true)}
-          className="h-11 w-11 shrink-0 rounded-full object-cover sm:h-12 sm:w-12"
+          className="h-10 w-10 shrink-0 rounded-full object-cover sm:h-12 sm:w-12"
         />
       ) : (
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#E5007D]/25 sm:h-12 sm:w-12">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#E5007D]/25 sm:h-12 sm:w-12">
           <Users className="h-5 w-5 text-[#ff5db8]" />
         </span>
       )}
@@ -294,19 +302,75 @@ function LeadingTeamBadge({ name, logoUrl }) {
   );
 }
 
-/* One tile in the Player Stats panel. */
+/* Player name + jersey + role + category. Rendered twice (mobile overlay,
+   md+ right column); visibility is controlled by the parent via className. */
+function PlayerIdentity({ player, as: Tag = "div", className = "", nameClass = "" }) {
+  return (
+    <div className={`flex-col items-center text-center ${className}`}>
+      <Tag
+        className={`aa-display max-w-full break-words uppercase leading-[0.95] tracking-tight text-white [text-shadow:0_4px_24px_rgba(0,0,0,0.65)] ${nameClass}`}
+      >
+        {player?.player_name || "Waiting for player..."}
+        {player?.jersey_number ? <span className="ml-3 text-[#ff2e9a]">{player.jersey_number}</span> : null}
+      </Tag>
+
+      {(player?.player_role || player?.category) && (
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+          {player?.player_role && (
+            <span className="aa-display text-lg uppercase tracking-wide text-white/80 sm:text-2xl">
+              {player.player_role}
+            </span>
+          )}
+          {/* Pill grows with its text, so long categories never overflow the pink background */}
+          {player?.category && (
+            <span className="inline-flex min-h-[1.5rem] min-w-[1.5rem] items-center justify-center whitespace-nowrap rounded-full bg-[#E5007D] px-2.5 py-0.5 text-[10px] font-black uppercase leading-none tracking-wider text-white shadow-[0_0_14px_rgba(229,0,125,0.6)] sm:text-xs">
+              {player.category}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Mobile stat tile (3 x 2 grid). */
 function StatTile({ label, value }) {
   const text = String(value ?? "-");
   const isLong = text.length > 5;
 
   return (
     <div className="flex min-w-0 flex-col items-center justify-between gap-1.5 rounded-2xl border border-[#E5007D]/35 bg-black/30 px-1.5 py-3">
-      <span className="text-center text-[9px] font-black uppercase leading-tight tracking-wide text-white/85 sm:text-[10px]">
+      <span className="text-center text-[10px] font-black uppercase leading-tight tracking-wide text-white/85">
         {label}
       </span>
       <span
         className={`aa-display max-w-full break-words text-center leading-none text-[#ff2e9a] ${
-          isLong ? "text-xl sm:text-2xl" : "text-3xl sm:text-4xl"
+          isLong ? "text-xl" : "text-3xl"
+        }`}
+      >
+        {text}
+      </span>
+    </div>
+  );
+}
+
+/* md+ stat cell: label over value, vertical divider between cells. */
+function StatCell({ label, value, divider }) {
+  const text = String(value ?? "-");
+  const isLong = text.length > 5;
+
+  return (
+    <div
+      className={`flex min-w-0 flex-col items-center justify-center gap-2 px-2 py-1 ${
+        divider ? "border-l border-white/15" : ""
+      }`}
+    >
+      <span className="text-center text-[11px] font-black uppercase leading-tight tracking-[0.15em] text-white/85 lg:text-xs">
+        {label}
+      </span>
+      <span
+        className={`aa-display max-w-full break-words text-center leading-none text-[#ff2e9a] ${
+          isLong ? "text-2xl lg:text-3xl" : "text-4xl lg:text-5xl"
         }`}
       >
         {text}
@@ -486,6 +550,13 @@ export default function PublicLiveView() {
   const leadingTeamName = leadingNameFromState || leadingTeam?.team_name || leadingTeam?.name || "";
   const leadingTeamLogo = getTeamLogo(leadingTeam, state);
 
+  /* md+ stats strip: up to 6 columns per row, divider before every cell that is not first in its row */
+  const filledStats = playerStats.filter((st) => {
+    const v = String(st.value ?? "").trim();
+    return v !== "" && v !== "-" && v !== "\u2014";
+  });
+  const statCols = Math.max(1, Math.min(filledStats.length, 6));
+
   return (
     <div className="relative flex min-h-[100svh] w-full flex-col overflow-x-hidden bg-[#0B0F1A] font-sans text-white">
       <DisplayFontLoader />
@@ -497,10 +568,48 @@ export default function PublicLiveView() {
         <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-[#0B0F1A]/70 via-[#0B0F1A]/35 to-[#0B0F1A]/85" />
         <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_50%_50%,rgba(229,0,125,0.30),transparent_62%)]" />
 
-        {/* Header, main stage and sponsors stay in natural DOM order on every screen size */}
-        <div className="relative mx-auto flex w-full max-w-[1700px] flex-1 flex-col gap-5 px-4 py-5 md:px-8 md:py-7">
+        <div className="relative mx-auto flex w-full max-w-[1700px] flex-1 flex-col gap-4 px-4 py-4 md:gap-5 md:px-8 md:py-6">
           {/* =================== HEADER (always at the top) =================== */}
-          <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          {/* Mobile header: compact, two short rows */}
+          <header className="flex flex-col gap-2 sm:hidden">
+            <div className="flex items-center justify-between gap-2">
+              <AuctionLogoBox url={auction?.auction_logo_url} />
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/25 bg-black/50 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white backdrop-blur-md">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
+                  </span>
+                  Live View
+                </span>
+                <span className="inline-flex min-w-0 max-w-[110px] items-center rounded-full border border-white/25 bg-black/50 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white/90 backdrop-blur-md">
+                  <span className="truncate">#{auction?.auction_code || publicSlug}</span>
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="aa-display truncate text-[32px] uppercase leading-none tracking-tight">
+                  <span className="text-[#ff1f9f]">Auction</span> <span className="text-white">Arena</span>
+                </div>
+                <div className="mt-1 truncate text-[10px] font-bold uppercase tracking-[0.22em] text-white/75">
+                  {seasonLabel}
+                </div>
+              </div>
+              <a
+                href={`/live/${publicSlug}/dashboard`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex shrink-0 items-center rounded-full border border-white/25 bg-black/50 px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-white backdrop-blur-md transition-colors hover:border-[#E5007D] hover:text-[#ff5db8]"
+              >
+                Dashboard
+              </a>
+            </div>
+          </header>
+
+          {/* Tablet / laptop header */}
+          <header className="hidden flex-col gap-3 sm:flex lg:flex-row lg:items-start lg:justify-between">
             {/* LEFT: logo | wordmark + season label */}
             <div className="flex min-w-0 flex-wrap items-center gap-3 sm:gap-4">
               <AuctionLogoBox url={auction?.auction_logo_url} />
@@ -521,7 +630,7 @@ export default function PublicLiveView() {
 
             {/* RIGHT: tagline + status pills */}
             <div className="flex flex-col items-start gap-3 lg:items-end">
-              <div className="text-[10px] font-bold uppercase tracking-[0.35em] text-white/75 sm:text-xs">
+              <div className="hidden text-[10px] font-bold uppercase tracking-[0.35em] text-white/75 sm:block sm:text-xs">
                 Players &middot; Passion &middot; Bigger Dreams
               </div>
               <div className="flex flex-wrap items-center gap-2 lg:justify-end">
@@ -548,88 +657,89 @@ export default function PublicLiveView() {
           </header>
 
           {/* =================== MAIN STAGE =================== */}
-          <main className="grid flex-1 grid-cols-1 items-center gap-4 md:grid-cols-2 md:gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,380px)_minmax(0,1fr)] lg:gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,440px)_minmax(0,1fr)]">
-            {/* ---------- CENTER: photo + name + leading team ---------- */}
-            <div className="order-1 flex w-full flex-col items-center md:col-span-2 lg:order-2 lg:col-span-1">
-              <div className="relative w-full max-w-[320px] sm:max-w-[360px] lg:max-w-none">
+          <main className="flex flex-1 flex-col justify-center gap-4 md:gap-5">
+            {/* ---------- HERO: photo | name + team + bid ---------- */}
+            <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] md:gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:gap-10">
+              {/* PHOTO (mobile: name overlaid on the faded bottom) */}
+              <div className="relative mx-auto w-full max-w-[360px] md:mx-0 md:max-w-none">
                 <PlayerPhoto
                   url={currentPlayer?.photo_url}
                   name={currentPlayer?.player_name}
-                  className="aspect-[4/5] w-full lg:max-h-[55svh]"
+                  className="aspect-[4/5] w-full md:aspect-auto md:h-full md:min-h-[340px] lg:min-h-[420px]"
                 />
 
-                {/* Name block overlaid on the faded bottom of the photo */}
-                <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col items-center px-2 pb-2 text-center">
-                  <span className="inline-flex w-fit items-center rounded-full bg-[#E5007D] px-5 py-1.5 text-[10px] font-black uppercase tracking-[0.25em] text-white shadow-[0_0_24px_rgba(229,0,125,0.6)] sm:text-xs">
-                    Current Player
-                  </span>
+                <div className="absolute inset-x-0 bottom-0 z-10 px-2 pb-3 md:hidden">
+                  <PlayerIdentity
+                    player={currentPlayer}
+                    className="flex"
+                    nameClass="text-[clamp(38px,11vw,60px)]"
+                  />
+                </div>
+              </div>
 
-                  <h1 className="aa-display mt-2 max-w-full break-words text-[clamp(40px,11vw,64px)] uppercase leading-[0.95] tracking-tight text-white [text-shadow:0_4px_24px_rgba(0,0,0,0.65)] md:text-[clamp(44px,6vw,72px)] lg:text-[clamp(44px,4.6vw,88px)]">
-                    {currentPlayer?.player_name || "Waiting for player..."}
-                    {currentPlayer?.jersey_number ? (
-                      <span className="ml-3 text-[#ff2e9a]">{currentPlayer.jersey_number}</span>
-                    ) : null}
-                  </h1>
+              {/* RIGHT COLUMN (md+) / stacked below photo (mobile) */}
+              <div className="flex min-w-0 flex-col items-center justify-center gap-4 md:gap-5">
+                {/* Name block, md+ only */}
+                <PlayerIdentity
+                  as="h1"
+                  player={currentPlayer}
+                  className="hidden md:flex"
+                  nameClass="text-[clamp(44px,5.6vw,96px)]"
+                />
 
-                  {(currentPlayer?.player_role || currentPlayer?.category) && (
-                    <div className="mt-1.5 flex flex-wrap items-center justify-center gap-2">
-                      {currentPlayer?.player_role && (
-                        <span className="aa-display text-lg uppercase tracking-wide text-white/75 sm:text-2xl">
-                          {currentPlayer.player_role}
-                        </span>
-                      )}
-                      {/* Pill grows with its text, so long categories never overflow the pink background */}
-                      {currentPlayer?.category && (
-                        <span className="inline-flex min-h-[1.5rem] min-w-[1.5rem] items-center justify-center whitespace-nowrap rounded-full bg-[#E5007D] px-2.5 py-0.5 text-[10px] font-black uppercase leading-none tracking-wider text-white shadow-[0_0_14px_rgba(229,0,125,0.6)] sm:text-xs">
-                          {currentPlayer.category}
-                        </span>
-                      )}
+                <LeadingTeamBadge name={leadingTeamName} logoUrl={leadingTeamLogo} />
+
+                {/* CURRENT BID */}
+                <div className={`${PANEL} w-full max-w-[560px] p-4 text-center sm:p-5`}>
+                  <div className="text-xs font-black uppercase tracking-[0.2em] text-white sm:text-sm">
+                    Current Bid
+                  </div>
+
+                  <div className="aa-display mt-1 max-w-full text-[clamp(48px,13vw,80px)] leading-none text-[#ff1f9f] [text-shadow:0_0_28px_rgba(229,0,125,0.5)] md:text-[clamp(44px,5.2vw,84px)]">
+                    ₹{formatAmount(currentBid)}
+                  </div>
+
+                  <div className="my-3 h-px w-full bg-white/15 sm:my-4" />
+
+                  {/* Mobile: label and amount inline. md+: stacked. */}
+                  <div className="flex items-baseline justify-center gap-3 md:flex-col md:items-center md:gap-0.5">
+                    <div className="text-[10px] font-black uppercase tracking-[0.2em] text-white/70 sm:text-xs">
+                      Base Price
                     </div>
-                  )}
+                    <div className="aa-display text-2xl leading-tight text-white md:text-3xl">
+                      ₹{formatAmount(basePrice)}
+                    </div>
+                  </div>
                 </div>
               </div>
-
-              <LeadingTeamBadge name={leadingTeamName} logoUrl={leadingTeamLogo} />
             </div>
 
-            {/* ---------- CURRENT BID (2nd on mobile, right on desktop) ---------- */}
+            {/* ---------- PLAYER STATS (hidden entirely when no stat has a value) ---------- */}
+            {/* Mobile: 3 x 2 tiles */}
+            {filledStats.length > 0 && (
+            <div className="grid grid-cols-3 gap-2.5 md:hidden">
+              {filledStats.map((stat, i) => (
+                <StatTile key={`${stat.label}-${i}`} label={stat.label} value={stat.value} />
+              ))}
+            </div>
+            )}
+
+            {/* md+: one wide strip with vertical dividers */}
+            {filledStats.length > 0 && (
             <div
-              className={`${PANEL} order-2 mx-auto w-full max-w-[520px] p-4 sm:p-5 md:order-3 md:max-w-none lg:order-3`}
+              className={`${PANEL} hidden gap-y-4 px-2 py-4 md:grid lg:px-4 lg:py-5`}
+              style={{ gridTemplateColumns: `repeat(${statCols}, minmax(0, 1fr))` }}
             >
-              <div className="flex items-center justify-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-white sm:text-sm lg:justify-start">
-                <Gavel className="h-4 w-4 shrink-0 -rotate-45 text-[#ff2e9a]" />
-                <span>Current Bid</span>
-              </div>
-
-              <div className="aa-display mt-2 max-w-full text-center text-[clamp(48px,13vw,80px)] leading-none text-[#ff1f9f] [text-shadow:0_0_28px_rgba(229,0,125,0.5)] md:text-[clamp(40px,5.2vw,64px)] lg:text-left lg:text-[clamp(40px,4.6vw,104px)]">
-                ₹{formatAmount(currentBid)}
-              </div>
-
-              <div className="my-3 h-px w-full bg-white/15 sm:my-4" />
-
-              <div className="text-center lg:text-left">
-                <div className="text-[10px] font-black uppercase tracking-[0.2em] text-white/60 sm:text-xs">
-                  Base Price
-                </div>
-                <div className="aa-display mt-0.5 text-2xl leading-tight text-white sm:text-3xl">
-                  ₹{formatAmount(basePrice)}
-                </div>
-              </div>
+              {filledStats.map((stat, i) => (
+                <StatCell
+                  key={`${stat.label}-${i}`}
+                  label={stat.label}
+                  value={stat.value}
+                  divider={i % statCols !== 0}
+                />
+              ))}
             </div>
-
-            {/* ---------- PLAYER STATS (3rd on mobile, left on desktop) ---------- */}
-            <div className={`${PANEL} order-3 mx-auto w-full max-w-[520px] p-4 sm:p-5 md:order-2 md:max-w-none lg:order-1`}>
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs font-black uppercase tracking-[0.2em] text-white sm:mb-4 sm:text-sm">
-                <Trophy className="h-4 w-4 shrink-0 text-[#ff2e9a]" />
-                Player Stats
-              </div>
-
-              <div className="grid grid-cols-[repeat(auto-fit,minmax(84px,1fr))] gap-2.5">
-                {playerStats.map((stat, i) => (
-                  <StatTile key={`${stat.label}-${i}`} label={stat.label} value={stat.value} />
-                ))}
-              </div>
-            </div>
+            )}
           </main>
 
           {/* =================== POWERED BY =================== */}

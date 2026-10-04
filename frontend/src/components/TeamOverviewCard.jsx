@@ -1,3 +1,4 @@
+// ===================== TeamOverviewCard.jsx =====================
 import { Shield, ArrowRight, Download, Gavel } from "lucide-react";
 import TeamLogo from "../components/ui/TeamLogo";
 
@@ -131,20 +132,37 @@ function Ring({ pct = 0, color }) {
   );
 }
 
-/* One metric column: value + label, ring, and a bar underneath */
+/* One metric column: value + label, ring, and a bar underneath.
+   - mobile (<sm): the full amount gets its own line (never cut off),
+     label + ring sit on the line below it.
+   - sm and up: original layout (value/label left, ring right), amount wraps
+     instead of being truncated. No rupee sign. */
 function Metric({ label, value, pct, ringPct, color, valueClass = "text-slate-900", labelClass }) {
   return (
     <div
       className="min-w-0 rounded-xl border bg-white p-1.5 shadow-sm sm:p-2.5"
       style={{ borderColor: `${color}40` }}
     >
-      <div className="flex items-center justify-between gap-1">
+      {/* Mobile */}
+      <div className="sm:hidden">
+        <div className={`whitespace-nowrap text-[11px] font-black leading-tight ${valueClass}`}>
+          {money(value)}
+        </div>
+        <div className="mt-0.5 flex items-center justify-between gap-1">
+          <div className={`text-[9px] font-black uppercase tracking-wide ${labelClass}`}>{label}</div>
+          <Ring pct={ringPct} color={color} />
+        </div>
+      </div>
+
+      {/* Tablet / laptop / desktop */}
+      <div className="hidden items-center justify-between gap-1 sm:flex">
         <div className="min-w-0">
-          <div className={`truncate text-xs font-black sm:text-base ${valueClass}`}>&#8377;{money(value)}</div>
-          <div className={`text-[9px] font-black uppercase tracking-wide sm:text-[11px] ${labelClass}`}>{label}</div>
+          <div className={`break-all text-base font-black leading-tight ${valueClass}`}>{money(value)}</div>
+          <div className={`text-[11px] font-black uppercase tracking-wide ${labelClass}`}>{label}</div>
         </div>
         <Ring pct={ringPct} color={color} />
       </div>
+
       <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full" style={{ backgroundColor: `${color}26` }}>
         <div
           className="h-full rounded-full transition-all"
@@ -173,8 +191,8 @@ function MaxBid({ value, color, labelClass }) {
         <Gavel size={13} style={{ color }} className="shrink-0" />
         <span>Max Bid</span>
       </div>
-      <div className="truncate text-base font-black leading-none sm:text-xl xl:text-2xl" style={{ color }}>
-        &#8377;{money(value)}
+      <div className="break-all text-base font-black leading-none sm:text-xl xl:text-2xl" style={{ color }}>
+        {money(value)}
       </div>
     </div>
   );
