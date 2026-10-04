@@ -665,7 +665,7 @@ export default function PublicLiveView() {
   const leadingTeamLogo = getTeamLogo(leadingTeam, state);
 
   /* md+ stats strip: up to 6 columns per row, divider before every cell that is not first in its row */
-  const filledStats = playerStats.filter((st) => {
+  const filledStats = (Array.isArray(resolvedStats?.data) ? resolvedStats.data : []).filter((st) => {
     const v = String(st.value ?? "").trim();
     return v !== "" && v !== "-" && v !== "\u2014";
   });
