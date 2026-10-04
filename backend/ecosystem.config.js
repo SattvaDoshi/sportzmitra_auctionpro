@@ -22,9 +22,11 @@ module.exports = {
       name: "sportzmitra-auction",
       script: "src/server.js",
 
-      // Fork one worker per vCPU core
-      instances: 2,
-      exec_mode: "cluster",
+      // Socket.IO is stateful — cluster mode requires sticky sessions + a shared
+      // adapter (Redis pub/sub). Since we don't have Redis, use a single fork
+      // instance. Node's event loop handles concurrent connections efficiently.
+      instances: 1,
+      exec_mode: "fork",
 
       // ── Environment ──────────────────────────────────────────────────────
       env: {

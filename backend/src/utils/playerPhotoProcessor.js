@@ -4,6 +4,34 @@ const { randomUUID } = require("crypto");
 const sharp = require("sharp");
 const heicConvert = require("heic-convert");
 
+// ---------------------------------------------------------------------------
+// Google Drive Service Account support (optional)
+// Set GOOGLE_SERVICE_ACCOUNT_KEY_FILE in .env to enable authenticated Drive
+// downloads. Required when photos come from Google Forms (files are private).
+// ---------------------------------------------------------------------------
+let driveAuth = null;
+function getDriveAuth() {
+  if (driveAuth) return driveAuth;
+  const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE;
+  if (!keyFile) return null;
+  try {
+    const { google } = require("googleapis");
+    const keyPath = path.resolve(keyFile);
+    if (!fs.existsSync(keyPath)) {
+      console.warn("[Drive] Service account key file not found:", keyPath);
+      return null;
+    }
+    driveAuth = new google.auth.GoogleAuth({
+      keyFile: keyPath,
+      scopes: ["https://www.googleapis.com/auth/drive.readonly"],
+    });
+    return driveAuth;
+  } catch (err) {
+    console.warn("[Drive] Failed to init service account auth:", err.message);
+    return null;
+  }
+}
+
 const uploadsRoot = path.join(__dirname, "..", "uploads");
 const originalDir = path.join(uploadsRoot, "players", "original");
 const processedDir = path.join(uploadsRoot, "players", "processed");
@@ -133,31 +161,62 @@ async function processUploadedPlayerPhoto(req, file) {
  * Output:
  *   https://drive.google.com/uc?export=download&id=<FILE_ID>
  */
-function normalizeDriveUrl(url) {
+/**
+ * Extract the Google Drive file ID from any known Drive URL format, or null
+ * if the URL isn't a Drive URL.
+ */
+function extractDriveFileId(url) {
   try {
     const parsed = new URL(url);
-    if (!parsed.hostname.endsWith("drive.google.com")) return url;
+    if (!parsed.hostname.endsWith("drive.google.com")) return null;
 
     // Pattern: /file/d/<ID>/view  or  /file/d/<ID>/preview
     const fileMatch = parsed.pathname.match(/\/file\/d\/([^/]+)/);
-    if (fileMatch) {
-      return `https://drive.google.com/uc?export=download&id=${fileMatch[1]}`;
-    }
+    if (fileMatch) return fileMatch[1];
 
-    // Pattern: /open?id=<ID>  or  /uc?id=<ID>
-    const idParam = parsed.searchParams.get("id");
-    if (idParam) {
-      return `https://drive.google.com/uc?export=download&id=${idParam}`;
-    }
+    // Pattern: /open?id=<ID>  or  /uc?id=<ID>  or  /u/1/open?...&id=<ID>
+    return parsed.searchParams.get("id") || null;
   } catch (_) {
-    // Not a valid URL – return as-is and let the fetch fail naturally
+    return null;
   }
-  return url;
+}
+
+/**
+ * Try to download a Google Drive file using a Service Account (OAuth2).
+ * Returns a { buffer, mimetype, originalname } object or throws.
+ */
+async function downloadDriveFileWithServiceAccount(fileId) {
+  const auth = getDriveAuth();
+  if (!auth) throw new Error("No service account configured");
+
+  const { google } = require("googleapis");
+  const drive = google.drive({ version: "v3", auth });
+
+  const metaRes = await drive.files.get({ fileId, fields: "name,mimeType" });
+  const mimetype = metaRes.data.mimeType || "image/jpeg";
+  const originalname = metaRes.data.name || "photo.jpg";
+
+  const dlRes = await drive.files.get(
+    { fileId, alt: "media" },
+    { responseType: "arraybuffer" }
+  );
+
+  return {
+    buffer: Buffer.from(dlRes.data),
+    mimetype,
+    originalname,
+  };
 }
 
 async function downloadImageBuffer(rawUrl) {
-  const url = normalizeDriveUrl(rawUrl);
+  // --- Google Drive: prefer Service Account auth if configured ---
+  const driveFileId = extractDriveFileId(rawUrl);
+  if (driveFileId && getDriveAuth()) {
+    return downloadDriveFileWithServiceAccount(driveFileId);
+  }
 
+  // --- Fallback: plain HTTP fetch (works for truly public URLs) ---
+  const url = rawUrl;
   const response = await fetch(url, {
     redirect: "follow",
     headers: { "user-agent": "SportzMitraAuction/1.0" },
@@ -169,13 +228,11 @@ async function downloadImageBuffer(rawUrl) {
 
   const contentType = response.headers.get("content-type") || "";
 
-  // Guard: reject HTML responses (e.g. Drive virus-scan confirmation pages,
-  // or any URL that resolves to a webpage instead of an image)
+  // Guard: reject HTML responses (e.g. Drive bot-protection or login pages)
   if (contentType.includes("text/html")) {
     throw new Error(
       `URL did not return an image (got ${contentType}). ` +
-      `For large Google Drive files the download confirmation page may appear – ` +
-      `ensure the file is publicly shared and under ~25 MB.`
+      `For Google Drive photos, configure GOOGLE_SERVICE_ACCOUNT_KEY_FILE in .env.`
     );
   }
 

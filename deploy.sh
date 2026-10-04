@@ -587,7 +587,7 @@ server {
         proxy_read_timeout    30s;
     }
 
-    # ── Socket.io (WebSocket upgrade) ──────────────────────────────────────
+    # ── Socket.io (WebSocket + polling) ──────────────────────────────────────
     location /socket.io/ {
         proxy_pass         http://sportzmitra_api;
         proxy_http_version 1.1;
@@ -598,8 +598,12 @@ server {
         proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto \$scheme;
 
+        proxy_connect_timeout 10s;
         proxy_read_timeout  86400s;
         proxy_send_timeout  86400s;
+
+        # Disable response buffering so events are sent immediately
+        proxy_buffering off;
     }
 
     # ── Uploaded player photos ─────────────────────────────────────────────

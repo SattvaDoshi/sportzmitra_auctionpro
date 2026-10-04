@@ -4,3 +4,5 @@ src/uploads/**
 !src/uploads/.gitkeep
 !src/uploads/team-logos/.gitkeep
 !src/uploads/player-photos/.gitkeep
+
+google-service-account.json
