@@ -7,16 +7,22 @@
  * Open / General Auction:
  *   remaining_players = player_limit − players_already_purchased
  *   reserved          = remaining_players × default_base_price
- *   max_bid           = remaining_purse − reserved
+ *   max_bid           = remaining_purse − reserved + current_player_base_price
  *
  * Category-Wise Auction:
  *   reserved = Σ max(0, slots_needed[cat] − bought[cat]) × base_price[cat]
- *   max_bid  = remaining_purse − reserved
+ *   max_bid  = remaining_purse − reserved + current_player_base_price
  *
- * NOTE: The current player on the block has NOT been purchased yet.
- *       Therefore it is already counted inside "remaining_players" /
- *       "stillNeeded" and its base price is part of the reserve.
- *       No add-back is required.
+ * WHY add back the current player's base price?
+ *   The current player on the block is not yet purchased, so its slot is
+ *   already counted inside the reserve. But if a team wins the bid, that
+ *   slot is consumed by this player — the team only needs to keep enough
+ *   purse for the OTHER remaining slots. Adding back the current player's
+ *   base price reflects exactly that: the team can safely bid that extra
+ *   amount because it will be spent on the current player's slot.
+ *
+ *   When currentPlayer is null ("absolute" mode — no live player on block),
+ *   no add-back is applied and the reserve covers ALL remaining slots.
  *
  * Player limit precedence (per-team overrides auction-wide):
  *   COALESCE(team.player_limit, auction.players_per_team, 0)
@@ -116,10 +122,7 @@ async function calculateMaxBids(pool, auctionId, currentPlayer = null) {
       // Formula:
       //   remaining_players = player_limit − already_purchased
       //   reserved          = remaining_players × base_price
-      //   max_bid           = remaining_purse − reserved
-      //
-      // The current player on the block is NOT yet purchased; its slot is
-      // already counted in remaining_players. No add-back is needed.
+      //   max_bid           = remaining_purse − reserved + current_player_base_price
 
       if (effectivePlayerLimit > 0) {
         const remainingPlayers = Math.max(0, effectivePlayerLimit - sold.total);
@@ -132,8 +135,7 @@ async function calculateMaxBids(pool, auctionId, currentPlayer = null) {
       // For every category with a per-team slot limit, reserve:
       //   (slots_remaining_in_category) × category_base_price
       //
-      // The current player on the block is NOT yet purchased; its category
-      // slot is still counted in stillNeeded. No add-back is needed.
+      // max_bid = remaining_purse − reserved + current_player_base_price
 
       if (categorySlots.length > 0) {
         // At least one category has a slot limit — use per-category reserves
@@ -154,7 +156,45 @@ async function calculateMaxBids(pool, auctionId, currentPlayer = null) {
       }
     }
 
-    const rawMaxBid = remainingPurse - minReserve;
+    // ── Add back the current player's base price ──────────────────────
+    // The current player's slot is already included in minReserve above.
+    // Since the team is about to spend its bid on THIS player (consuming
+    // that slot), we can safely add back its base price — the team only
+    // needs to keep the reserve for the OTHER remaining slots.
+    // This is skipped when currentPlayer is null ("absolute" mode).
+    let currentPlayerAddBack = 0;
+    if (currentPlayer) {
+      if (!isCategory || categorySlots.length === 0) {
+        // Open auction OR category-wise with no per-category limits:
+        // The current player occupies one general slot.
+        // Add back the smaller of (its actual base price) or (defaultBasePrice)
+        // so the team cannot exceed what it would save by using that slot.
+        const slotBase = Number(currentPlayer.base_price || defaultBasePrice);
+        // Only add back if there's still a slot for this player
+        const remainingSlots = effectivePlayerLimit > 0
+          ? Math.max(0, effectivePlayerLimit - sold.total)
+          : 0;
+        if (remainingSlots > 0) {
+          currentPlayerAddBack = slotBase;
+        }
+      } else {
+        // Category-wise with per-category limits:
+        // Only add back if the current player's category has a slot limit
+        // AND this team still has an open slot in that category.
+        const activeCat = categorySlots.find(c => c.category_name === currentPlayer.category);
+        if (activeCat) {
+          const bought = Number(sold.byCategory[currentPlayer.category] || 0);
+          if (bought < Number(activeCat.max_players_per_team)) {
+            currentPlayerAddBack = Number(currentPlayer.base_price || activeCat.base_price || 0);
+          }
+        } else {
+          // Player's category has no slot limit — add back its base price directly
+          currentPlayerAddBack = Number(currentPlayer.base_price || defaultBasePrice);
+        }
+      }
+    }
+
+    const rawMaxBid = remainingPurse - minReserve + currentPlayerAddBack;
     const maxBid = Math.min(remainingPurse, Math.max(0, Math.floor(rawMaxBid)));
 
     return {
