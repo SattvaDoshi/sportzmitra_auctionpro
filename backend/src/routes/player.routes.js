@@ -105,47 +105,58 @@ async function upsertOrgPlayer(conn, organizationId, data) {
   }
 
   if (existing) {
-    await conn.query(
-      `UPDATE org_players
-       SET player_name = COALESCE(?, player_name),
-           mobile = COALESCE(?, mobile),
-           normalized_mobile = COALESCE(?, normalized_mobile),
-           email = COALESCE(?, email),
-           area = COALESCE(?, area),
-           default_role = COALESCE(?, default_role),
-           default_tshirt_size = COALESCE(?, default_tshirt_size),
-           photo_url = CASE WHEN ? IS NOT NULL THEN ? ELSE photo_url END,
-           original_photo_url = CASE WHEN ? IS NOT NULL THEN ? ELSE original_photo_url END,
-           photo_source = CASE WHEN ? IS NOT NULL THEN ? ELSE photo_source END,
-           photo_processing_status = CASE WHEN ? IS NOT NULL THEN ? ELSE photo_processing_status END,
-           photo_processing_mode = CASE WHEN ? IS NOT NULL THEN ? ELSE photo_processing_mode END,
-           photo_updated_at = CASE WHEN ? IS NOT NULL THEN NOW() ELSE photo_updated_at END,
-           serial_number = COALESCE(?, serial_number),
-           updated_at = NOW()
-       WHERE id = ?`,
-      [
-        playerName,
-        mobile,
-        normalizedMobile,
-        email,
-        area,
-        role,
-        tshirtSize,
-        photoUrl,
-        photoUrl,
-        originalPhotoUrl,
-        originalPhotoUrl,
-        photoUrl,
-        photoSource,
-        photoUrl,
-        photoProcessingStatus,
-        photoUrl,
-        photoProcessingMode,
-        photoUrl,
-        serialNumber,
-        existing.id,
-      ]
-    );
+    // skipPhotoUpdate: when editing a specific auction player, we don't want to overwrite
+    // the shared org_player photo — multiple players can share the same org_player (same email)
+    // and updating the org_player photo would change ALL of them.
+    const skipPhotoUpdate = data.skipPhotoUpdate || false;
+
+    if (skipPhotoUpdate) {
+      await conn.query(
+        `UPDATE org_players
+         SET player_name = COALESCE(?, player_name),
+             mobile = COALESCE(?, mobile),
+             normalized_mobile = COALESCE(?, normalized_mobile),
+             email = COALESCE(?, email),
+             area = COALESCE(?, area),
+             default_role = COALESCE(?, default_role),
+             default_tshirt_size = COALESCE(?, default_tshirt_size),
+             serial_number = COALESCE(?, serial_number),
+             updated_at = NOW()
+         WHERE id = ?`,
+        [playerName, mobile, normalizedMobile, email, area, role, tshirtSize, serialNumber, existing.id]
+      );
+    } else {
+      await conn.query(
+        `UPDATE org_players
+         SET player_name = COALESCE(?, player_name),
+             mobile = COALESCE(?, mobile),
+             normalized_mobile = COALESCE(?, normalized_mobile),
+             email = COALESCE(?, email),
+             area = COALESCE(?, area),
+             default_role = COALESCE(?, default_role),
+             default_tshirt_size = COALESCE(?, default_tshirt_size),
+             photo_url = CASE WHEN ? IS NOT NULL THEN ? ELSE photo_url END,
+             original_photo_url = CASE WHEN ? IS NOT NULL THEN ? ELSE original_photo_url END,
+             photo_source = CASE WHEN ? IS NOT NULL THEN ? ELSE photo_source END,
+             photo_processing_status = CASE WHEN ? IS NOT NULL THEN ? ELSE photo_processing_status END,
+             photo_processing_mode = CASE WHEN ? IS NOT NULL THEN ? ELSE photo_processing_mode END,
+             photo_updated_at = CASE WHEN ? IS NOT NULL THEN NOW() ELSE photo_updated_at END,
+             serial_number = COALESCE(?, serial_number),
+             updated_at = NOW()
+         WHERE id = ?`,
+        [
+          playerName, mobile, normalizedMobile, email, area, role, tshirtSize,
+          photoUrl, photoUrl,
+          originalPhotoUrl, originalPhotoUrl,
+          photoUrl, photoSource,
+          photoUrl, photoProcessingStatus,
+          photoUrl, photoProcessingMode,
+          photoUrl,
+          serialNumber,
+          existing.id,
+        ]
+      );
+    }
 
 
     const [[updated]] = await conn.query(`SELECT * FROM org_players WHERE id = ?`, [existing.id]);
@@ -211,7 +222,7 @@ router.get("/auction/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
 
     const [rows] = await pool.query(
       `SELECT p.*, 
-              COALESCE(op.photo_url, p.photo_url) AS photo_url,
+              COALESCE(p.photo_url, op.photo_url) AS photo_url,
               op.id AS master_player_id,
               op.photo_url AS master_photo_url,
               t.team_name AS sold_team_name
@@ -366,6 +377,9 @@ router.put("/:playerId", authMiddleware, requireRole("AUCTION_ADMIN", "SUPER_ADM
       photo_source: photo_url ? "MANUAL" : null,
       source: "MANUAL",
       serial_number,
+      // Don't update shared org_player photo — multiple auction players can share the same
+      // org_player (same email/mobile). Photo is stored per-player in the players table.
+      skipPhotoUpdate: true,
     });
 
     const latestPhotoUrl = clean(photo_url) || orgPlayer.photo_url || existing.photo_url || null;
