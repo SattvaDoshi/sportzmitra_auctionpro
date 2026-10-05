@@ -147,12 +147,6 @@ async function upsertOrgPlayer(conn, organizationId, data) {
       ]
     );
 
-    if (photoUrl) {
-      await conn.query(
-        `UPDATE players SET photo_url = ? WHERE org_player_id = ?`,
-        [photoUrl, existing.id]
-      );
-    }
 
     const [[updated]] = await conn.query(`SELECT * FROM org_players WHERE id = ?`, [existing.id]);
     return updated;
