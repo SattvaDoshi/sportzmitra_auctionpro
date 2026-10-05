@@ -4,16 +4,22 @@
  * Ensures a team cannot bid so much that it can no longer afford
  * the minimum base prices for all remaining required players.
  *
- * General Auction:
- *   max_bid = remaining_purse
- *             - (remaining_players_needed × default_base_price)
- *             + current_player_base_price    ← already bidding on this one
+ * Open / General Auction:
+ *   remaining_players = player_limit − players_already_purchased
+ *   reserved          = remaining_players × default_base_price
+ *   max_bid           = remaining_purse − reserved
  *
  * Category-Wise Auction:
- *   reserve = Σ max(0, slots_needed[cat] - bought[cat]) × base_price[cat]
- *   max_bid = remaining_purse
- *             - reserve
- *             + current_player_category_base_price   ← already bidding on this
+ *   reserved = Σ max(0, slots_needed[cat] − bought[cat]) × base_price[cat]
+ *   max_bid  = remaining_purse − reserved
+ *
+ * NOTE: The current player on the block has NOT been purchased yet.
+ *       Therefore it is already counted inside "remaining_players" /
+ *       "stillNeeded" and its base price is part of the reserve.
+ *       No add-back is required.
+ *
+ * Player limit precedence (per-team overrides auction-wide):
+ *   COALESCE(team.player_limit, auction.players_per_team, 0)
  */
 
 /**
@@ -22,6 +28,7 @@
  * @property {string} team_name
  * @property {number} remaining_purse
  * @property {number} players_bought       - total SOLD players owned by team
+ * @property {number} player_limit         - effective player limit for this team
  * @property {number} min_reserve_required - minimum purse needed for remaining slots
  * @property {number} max_bid              - maximum this team can bid right now (≥ 0)
  */
@@ -46,11 +53,11 @@ async function calculateMaxBids(pool, auctionId, currentPlayer = null) {
 
   const isCategory = String(auction.auction_type || "").toUpperCase().includes("CATEGORY");
   const defaultBasePrice = Number(auction.default_base_price || 0);
-  const playersPerTeam = Number(auction.players_per_team || 0);
+  const auctionPlayersPerTeam = Number(auction.players_per_team || 0);
 
-  // 2. Load all active teams
+  // 2. Load all active teams (include per-team player_limit)
   const [teams] = await pool.query(
-    `SELECT id, team_name, remaining_purse
+    `SELECT id, team_name, remaining_purse, player_limit
      FROM teams
      WHERE auction_id = ? AND COALESCE(is_deleted, 0) = 0 AND status = 'ACTIVE'`,
     [auctionId]
@@ -96,46 +103,58 @@ async function calculateMaxBids(pool, auctionId, currentPlayer = null) {
     const remainingPurse = Number(team.remaining_purse || 0);
     const sold = soldByTeam[tid] || { total: 0, byCategory: {} };
 
+    // Effective player limit: per-team value takes precedence over auction-wide setting
+    const effectivePlayerLimit = team.player_limit != null
+      ? Number(team.player_limit)
+      : auctionPlayersPerTeam;
+
     let minReserve = 0;
-    let currentPlayerBonusBack = 0;
 
     if (!isCategory) {
-      // ── General Auction ──────────────────────────────────────────
-      const remainingNeeded = Math.max(0, playersPerTeam - sold.total);
-      minReserve = remainingNeeded * defaultBasePrice;
+      // ── Open / General Auction ────────────────────────────────────
+      //
+      // Formula:
+      //   remaining_players = player_limit − already_purchased
+      //   reserved          = remaining_players × base_price
+      //   max_bid           = remaining_purse − reserved
+      //
+      // The current player on the block is NOT yet purchased; its slot is
+      // already counted in remaining_players. No add-back is needed.
 
-      // If there's an active player on the block, the team is already
-      // bidding on it — add back its base price so reserve isn't double-counted.
-      if (currentPlayer && remainingNeeded > 0) {
-        currentPlayerBonusBack = Number(currentPlayer.base_price || defaultBasePrice);
+      if (effectivePlayerLimit > 0) {
+        const remainingPlayers = Math.max(0, effectivePlayerLimit - sold.total);
+        minReserve = remainingPlayers * defaultBasePrice;
       }
+      // If no player limit is configured, the team can bid up to its full purse.
     } else {
       // ── Category-Wise Auction ────────────────────────────────────
-      for (const cat of categorySlots) {
-        const maxSlots = Number(cat.max_players_per_team);
-        const bought = Number(sold.byCategory[cat.category_name] || 0);
-        const stillNeeded = Math.max(0, maxSlots - bought);
-        minReserve += stillNeeded * Number(cat.base_price || 0);
-      }
+      //
+      // For every category with a per-team slot limit, reserve:
+      //   (slots_remaining_in_category) × category_base_price
+      //
+      // The current player on the block is NOT yet purchased; its category
+      // slot is still counted in stillNeeded. No add-back is needed.
 
-      // Add back the current player's category base price
-      if (currentPlayer && currentPlayer.category) {
-        const activeCat = categorySlots.find(c => c.category_name === currentPlayer.category);
-        if (activeCat) {
-          const maxSlots = Number(activeCat.max_players_per_team);
-          const bought = Number(sold.byCategory[currentPlayer.category] || 0);
-          // Only add back if this team still has a slot in that category
-          if (bought < maxSlots) {
-            currentPlayerBonusBack = Number(currentPlayer.base_price || activeCat.base_price || 0);
-          }
-        } else {
-          // Category not in the slot list (unlimited) — just add back base price
-          currentPlayerBonusBack = Number(currentPlayer.base_price || 0);
+      if (categorySlots.length > 0) {
+        // At least one category has a slot limit — use per-category reserves
+        for (const cat of categorySlots) {
+          const maxSlots = Number(cat.max_players_per_team);
+          const bought = Number(sold.byCategory[cat.category_name] || 0);
+          const stillNeeded = Math.max(0, maxSlots - bought);
+          minReserve += stillNeeded * Number(cat.base_price || 0);
+        }
+      } else {
+        // No per-category slot limits are configured — fall back to the
+        // overall team player limit × auction default_base_price,
+        // identical to the open-auction calculation.
+        if (effectivePlayerLimit > 0) {
+          const remainingPlayers = Math.max(0, effectivePlayerLimit - sold.total);
+          minReserve = remainingPlayers * defaultBasePrice;
         }
       }
     }
 
-    const rawMaxBid = remainingPurse - minReserve + currentPlayerBonusBack;
+    const rawMaxBid = remainingPurse - minReserve;
     const maxBid = Math.min(remainingPurse, Math.max(0, Math.floor(rawMaxBid)));
 
     return {
@@ -143,6 +162,7 @@ async function calculateMaxBids(pool, auctionId, currentPlayer = null) {
       team_name: team.team_name,
       remaining_purse: remainingPurse,
       players_bought: sold.total,
+      player_limit: effectivePlayerLimit,
       min_reserve_required: minReserve,
       max_bid: maxBid,
     };
