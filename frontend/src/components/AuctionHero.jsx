@@ -1,7 +1,6 @@
 // ===================== AuctionHero.jsx =====================
-import { Link } from "react-router-dom";
 import { useMemo, useState } from "react";
-import { Eye, Gavel, Radio } from "lucide-react";
+import { Eye, Gavel } from "lucide-react";
 import { getImageUrl } from "../utils/imageUrl";
 
 const money = (v) => Number(v || 0).toLocaleString("en-IN");
@@ -19,13 +18,11 @@ function initials(name = "") {
 }
 
 /* ---------- player_info parsing ----------
-   player_info is rich text (HTML). We try to turn it into stat items
-   [{ label, value }] so the laptop view can render the stats bar.
-   Supported shapes:
+   player_info is rich text (HTML). We turn it into stat items [{ label, value }]
+   so the tablet/laptop view can render the stats bar.
      - table:  first row = labels, second row = values
      - list:   <li>match:10</li>  (label:value)
      - lines:  <p>match: 10</p>   (label:value)
-   Returns { hasContent, stats }.
    hasContent is false when the HTML has no visible text -> section is hidden. */
 function parsePlayerInfo(html) {
   if (!html || typeof window === "undefined") return { hasContent: false, stats: [] };
@@ -37,7 +34,6 @@ function parsePlayerInfo(html) {
   const stats = [];
   const clean = (s) => String(s || "").replace(/\u00a0/g, " ").trim();
 
-  // 1) table: header row + first value row
   const table = doc.querySelector("table");
   if (table) {
     const rows = Array.from(table.querySelectorAll("tr"));
@@ -50,7 +46,6 @@ function parsePlayerInfo(html) {
     }
   }
 
-  // 2) "label:value" in list items, then in paragraphs
   if (!stats.length) {
     const nodes = doc.querySelectorAll("li").length
       ? Array.from(doc.querySelectorAll("li"))
@@ -75,6 +70,7 @@ function parsePlayerInfo(html) {
 function MobilePlayerPhoto({ url, name }) {
   const photo = getImageUrl(url);
   const [failed, setFailed] = useState(false);
+  const box = "h-[84px] w-[68px] shrink-0 rounded-xl border border-white/20 bg-white/5";
   if (photo && !failed) {
     return (
       <img
@@ -82,12 +78,12 @@ function MobilePlayerPhoto({ url, name }) {
         alt={name || "Player"}
         draggable="false"
         onError={() => setFailed(true)}
-        className="h-[88px] w-[76px] shrink-0 rounded-xl border border-white/20 bg-white/5 object-cover object-top"
+        className={`${box} object-cover object-top`}
       />
     );
   }
   return (
-    <div className="aa-display flex h-[88px] w-[76px] shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/5 text-4xl text-[#EC008C]/60">
+    <div className={`${box} aa-display flex items-center justify-center text-4xl text-[#EC008C]/60`}>
       {String(name || "P").charAt(0).toUpperCase()}
     </div>
   );
@@ -98,7 +94,7 @@ function DesktopPlayerPhoto({ url, name }) {
   const photo = getImageUrl(url);
   const [failed, setFailed] = useState(false);
   const box =
-    "h-[200px] w-[170px] shrink-0 rounded-2xl border border-white/20 bg-white/5 lg:h-[270px] lg:w-[230px]";
+    "h-[160px] w-[135px] shrink-0 rounded-2xl border border-white/20 bg-white/5 lg:h-[270px] lg:w-[230px]";
   if (photo && !failed) {
     return (
       <img
@@ -117,7 +113,7 @@ function DesktopPlayerPhoto({ url, name }) {
   );
 }
 
-/* Laptop-only stats bar (label on top, big pink value, vertical dividers).
+/* Tablet/laptop stats bar (label on top, big pink value, vertical dividers).
    Falls back to the raw rich text inside the same panel if the HTML
    could not be split into label/value pairs. */
 function StatsBar({ stats = [], html }) {
@@ -131,12 +127,12 @@ function StatsBar({ stats = [], html }) {
           {stats.map((s, i) => (
             <div
               key={`${s.label}-${i}`}
-              className={`flex min-w-[110px] flex-1 flex-col items-center justify-center px-3 py-4 text-center ${
+              className={`flex min-w-[100px] flex-1 flex-col items-center justify-center px-3 py-3 text-center lg:min-w-[110px] lg:py-4 ${
                 i > 0 ? "border-l border-white/15" : ""
               }`}
             >
-              <div className="text-[11px] font-bold uppercase tracking-wider text-white/80">{s.label}</div>
-              <div className="aa-display mt-1 text-[clamp(28px,3vw,40px)] leading-none text-[#ff1f9f] [text-shadow:0_0_18px_rgba(236,0,140,.55)]">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-white/80 lg:text-[11px]">{s.label}</div>
+              <div className="aa-display mt-1 text-[clamp(24px,3vw,40px)] leading-none text-[#ff1f9f] [text-shadow:0_0_18px_rgba(236,0,140,.55)]">
                 {s.value}
               </div>
             </div>
@@ -154,7 +150,7 @@ function StatsBar({ stats = [], html }) {
 }
 
 /* ---------- main export ---------- */
-export default function AuctionHero({ auction, state, viewerCount = 0, publicSlug }) {
+export default function AuctionHero({ auction, state, viewerCount = 0 }) {
   const basePrice = Number(state?.base_price || 0);
   const currentBid = Number(state?.current_bid || basePrice || 0);
   const hasPlayer = !!state?.player_name;
@@ -162,14 +158,10 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
   const role = state?.player_role || state?.batting_style || "";
   const roundNo = state?.round_number ?? state?.round_no ?? state?.round;
 
-  // Category is always shown when present (same as the live view),
-  // even if it has the same text as the role.
   const category = state?.category ? String(state.category).trim() : "";
   const showCategory = !!category;
 
   const playerInfoHtml = state?.player_info;
-
-  // Stats: laptop only. Hidden completely when there is no value.
   const { hasContent: hasStats, stats } = useMemo(() => parsePlayerInfo(playerInfoHtml), [playerInfoHtml]);
 
   return (
@@ -178,7 +170,6 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
         @import url('https://fonts.googleapis.com/css2?family=Anton&display=swap');
         .aa-display { font-family: 'Anton', 'Archivo Black', ui-sans-serif, system-ui, sans-serif; }
 
-        /* ---------- Rich text fallback (used only if stats can't be split into label/value) ---------- */
         .rich-text-content {
           width: 100%;
           text-align: left;
@@ -275,98 +266,80 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
 
       {/* =====================================================================
           MOBILE (below md): compact header + compact player card
-          (stats removed on mobile)
           ===================================================================== */}
       <div className="md:hidden">
-        {/* Header */}
         <header>
           <div className="flex items-center justify-between gap-2">
             {auction?.auction_logo_url ? (
-              <img src={auction.auction_logo_url} alt="Auction logo" className="h-10 w-auto object-contain" />
+              <img src={auction.auction_logo_url} alt="Auction logo" className="h-9 w-auto max-w-[45%] object-contain" />
             ) : (
-              <Gavel className="h-8 w-8 shrink-0 -rotate-45 text-[#EC008C]" />
+              <Gavel className="h-7 w-7 shrink-0 -rotate-45 text-[#EC008C]" />
             )}
-            <div className="flex items-center gap-2">
-              <span className="flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700 shadow-md">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
-                <Eye size={12} className="text-emerald-500" />
-                {viewerCount} LIVE
-              </span>
-              {/* <Link
-                to={`/live/${publicSlug}`}
-                className="flex items-center gap-1.5 rounded-full bg-[#EC008C] px-3 py-1.5 text-[10px] font-black italic uppercase text-white shadow-md shadow-[#EC008C]/30 active:scale-95"
-              >
-                <Radio size={13} /> Live Arena
-              </Link> */}
-            </div>
+            <span className="flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-slate-700 shadow-md">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+              <Eye size={12} className="text-emerald-500" />
+              {viewerCount} LIVE
+            </span>
           </div>
-          <h1 className="mt-3 break-words text-center text-2xl font-black italic uppercase leading-tight tracking-tight text-[#EC008C]">
+          <h1 className="mt-2 break-words text-center text-xl font-black italic uppercase leading-tight tracking-tight text-[#EC008C]">
             {auction?.auction_name || "Auction"}
           </h1>
-          <p className="mt-1 text-center text-[8px] font-bold uppercase tracking-[0.16em] text-slate-500">
+          <p className="mt-0.5 text-center text-[8px] font-bold uppercase tracking-[0.14em] text-slate-500">
             Real-time team rosters • Player bids • Category • Analytics
           </p>
         </header>
 
         {/* Compact player card */}
-        <section className="mt-3 rounded-2xl border border-white/10 bg-[#2b0d29]/95 p-3 text-white shadow-2xl backdrop-blur-md">
-          {/* Row 1: Round / current player + category */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-[11px] font-bold uppercase tracking-wide text-white/90">
-              {roundNo ? (
-                <>
-                  Round {roundNo} <span className="mx-1 text-white/40">|</span>
-                </>
-              ) : null}
-              <span className={roundNo ? "text-white/70" : ""}>Current Player</span>
+        <section className="mt-2.5 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#3a1238] to-[#220a21] p-2.5 text-white shadow-xl">
+          {/* Round + category */}
+          <div className="flex items-center justify-between gap-2 px-0.5">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-white/70">
+              {roundNo ? <>Round {roundNo} <span className="mx-1 text-white/30">|</span></> : null}
+              Current Player
             </div>
             {showCategory && (
-              <span className="max-w-[45%] truncate rounded-full border border-[#8DC63F]/70 bg-[#8DC63F]/20 px-3 py-0.5 text-[10px] font-black uppercase tracking-wide text-[#b9e36d]">
+              <span className="max-w-[45%] truncate rounded-full border border-[#8DC63F]/60 bg-[#8DC63F]/15 px-2.5 py-px text-[9px] font-black uppercase tracking-wide text-[#b9e36d]">
                 {category}
               </span>
             )}
           </div>
 
-          {/* Row 2: photo | name + role */}
-          <div className="mt-2.5 flex items-start gap-3">
+          <div className="mt-2 flex gap-3">
             <MobilePlayerPhoto url={state?.photo_url} name={state?.player_name} />
 
-            <div className="min-w-0 flex-1 self-center">
-              <h2 className="break-words text-base font-black uppercase leading-tight text-white">
-                {hasPlayer ? state.player_name : "Waiting for player..."}
-                {jersey ? <span className="ml-1.5 text-[#ff1f9f]">{jersey}</span> : null}
-              </h2>
-              {role && (
-                <div className="mt-0.5 text-[11px] font-black uppercase tracking-wide text-[#ff7cc6]">{role}</div>
-              )}
-            </div>
-          </div>
+            <div className="flex min-w-0 flex-1 flex-col justify-between">
+              {/* Name + role */}
+              <div className="min-w-0">
+                <h2 className="truncate text-[17px] font-black uppercase leading-tight text-white">
+                  {hasPlayer ? state.player_name : "Waiting for player..."}
+                  {jersey ? <span className="ml-1.5 text-[#ff1f9f]">{jersey}</span> : null}
+                </h2>
+                {role && (
+                  <div className="text-[11px] font-black uppercase tracking-wide text-[#ff7cc6]">{role}</div>
+                )}
+              </div>
 
-          {/* Row 3: Base | Bid — full width, big amounts */}
-          <div className="mt-3 grid grid-cols-[1fr_1.25fr] gap-2">
-            <div className="flex flex-col items-center justify-center rounded-xl bg-[#8DC63F] px-2 py-2 text-slate-900 shadow-md">
-              <div className="text-[9px] font-black uppercase tracking-widest">Base</div>
-              <div className="aa-display whitespace-nowrap text-[22px] leading-tight">₹ {money(basePrice)}</div>
-            </div>
-            <div className="flex flex-col items-center justify-center rounded-xl bg-[#EC008C] px-2 py-2 text-white shadow-md shadow-[#EC008C]/40">
-              <div className="text-[9px] font-black uppercase tracking-widest">Bid</div>
-              <div className="aa-display whitespace-nowrap text-[28px] leading-tight">₹ {money(currentBid)}</div>
-            </div>
-          </div>
-
-          {/* Row 4: highest bid */}
-          {state?.highest_team_name && (
-            <div className="mt-2.5 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-2.5 py-2">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#EC008C]/20 text-[#ff1f9f]">
-                  <Gavel size={14} className="-rotate-45" />
-                </span>
-                <div className="min-w-0 truncate text-[11px] font-semibold text-white/70">
-                  Highest Bid:{" "}
-                  <span className="font-black text-[#8DC63F]">{state.highest_team_name}</span>
+              {/* Current bid with base price as a small caption */}
+              <div className="mt-1.5 flex items-end justify-between gap-2 rounded-xl bg-[#EC008C] px-3 py-1.5 shadow-md shadow-[#EC008C]/30">
+                <div>
+                  <div className="text-[9px] font-black uppercase tracking-widest text-white/80">Current Bid</div>
+                  <div className="aa-display whitespace-nowrap text-[22px] leading-none">₹ {money(currentBid)}</div>
+                </div>
+                <div className="pb-0.5 text-right">
+                  <div className="text-[8px] font-black uppercase tracking-widest text-white/70">Base</div>
+                  <div className="whitespace-nowrap text-[11px] font-black text-[#d6f58f]">₹ {money(basePrice)}</div>
                 </div>
               </div>
-              <span className="shrink-0 rounded bg-[#EC008C] px-2 py-1 text-[10px] font-black text-white">
+            </div>
+          </div>
+
+          {/* Highest bid */}
+          {state?.highest_team_name && (
+            <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-white/5 px-2.5 py-1.5">
+              <div className="min-w-0 truncate text-[10px] font-semibold text-white/70">
+                Highest Bid: <span className="font-black text-[#8DC63F]">{state.highest_team_name}</span>
+              </div>
+              <span className="shrink-0 rounded bg-[#EC008C] px-1.5 py-0.5 text-[9px] font-black text-white">
                 {initials(state.highest_team_name)}
               </span>
             </div>
@@ -375,7 +348,7 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
       </div>
 
       {/* =====================================================================
-          TABLET / LAPTOP (md and up): same theme as mobile, photo on the left
+          TABLET / LAPTOP (md and up)
           ===================================================================== */}
       <header className="hidden flex-wrap items-start justify-between gap-3 md:flex">
         <div className="flex min-w-0 items-start gap-3">
@@ -385,41 +358,33 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
             <Gavel className="mt-1 h-9 w-9 shrink-0 -rotate-45 text-[#EC008C] sm:h-11 sm:w-11" />
           )}
           <div className="min-w-0">
-            <h1 className="text-2xl font-black italic uppercase leading-none tracking-tight text-[#EC008C] sm:text-4xl">
+            <h1 className="text-2xl font-black italic uppercase leading-none tracking-tight text-[#EC008C] lg:text-4xl">
               {auction?.auction_name || "Auction"}
             </h1>
-            <p className="mt-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-slate-500 sm:text-xs">
+            <p className="mt-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-slate-500 lg:text-xs">
               Real-time team rosters • Player bids • Category • Analytics
             </p>
           </div>
         </div>
 
         <p
-          className="hidden -rotate-2 select-none text-base italic leading-tight text-[#EC008C] lg:block"
+          className="hidden -rotate-2 select-none text-base italic leading-tight text-[#EC008C] xl:block"
           style={{ fontFamily: "'Brush Script MT', cursive" }}
         >
           Players<br />Passion<br />Bigger Dreams
         </p>
 
-        <div className="flex w-full items-center gap-2 sm:w-auto sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <span className="flex items-center gap-2 rounded-full bg-white px-3 py-2 text-[11px] font-bold text-slate-700 shadow-md sm:px-4 sm:text-xs">
             <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
             <Eye size={14} className="text-emerald-500" />
             {viewerCount} LIVE VIEWERS
           </span>
-          {/* <Link
-            to={`/live/${publicSlug}`}
-            className="flex items-center gap-2 rounded-full bg-[#EC008C] px-4 py-2 text-[11px] font-black italic uppercase text-white shadow-md shadow-[#EC008C]/30 transition hover:bg-[#d4007e] active:scale-95 sm:text-xs"
-          >
-            <Radio size={15} /> Live Arena
-          </Link> */}
         </div>
       </header>
 
       <section className="mt-4 hidden md:block">
-        {/* Player card (same dark plum theme as mobile) */}
         <div className="rounded-2xl border border-white/10 bg-[#2b0d29]/95 p-4 text-white shadow-2xl backdrop-blur-md lg:p-5">
-          {/* Row 1: Round / current player + category */}
           <div className="flex items-center justify-between gap-3">
             <div className="text-xs font-bold uppercase tracking-wide text-white/90 lg:text-sm">
               {roundNo ? (
@@ -436,12 +401,11 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
             )}
           </div>
 
-          {/* Row 2: photo (left) | name + role + base/bid + highest bid */}
-          <div className="mt-4 flex items-center gap-5 lg:gap-7">
+          <div className="mt-3 flex items-center gap-4 lg:mt-4 lg:gap-7">
             <DesktopPlayerPhoto url={state?.photo_url} name={state?.player_name} />
 
             <div className="min-w-0 flex-1">
-              <h2 className="aa-display break-words text-[clamp(30px,4vw,56px)] uppercase leading-none text-white">
+              <h2 className="aa-display break-words text-[clamp(26px,4vw,56px)] uppercase leading-none text-white">
                 {hasPlayer ? state.player_name : "Waiting for player..."}
                 {jersey ? <span className="ml-2 text-[#ff1f9f]">{jersey}</span> : null}
               </h2>
@@ -452,22 +416,21 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
               )}
 
               {/* Base | Bid */}
-              <div className="mt-4 grid max-w-xl grid-cols-[1fr_1.25fr] gap-3">
-                <div className="flex flex-col items-center justify-center rounded-xl bg-[#8DC63F] px-3 py-3 text-slate-900 shadow-md">
+              <div className="mt-3 grid max-w-xl grid-cols-[1fr_1.25fr] gap-3 lg:mt-4">
+                <div className="flex flex-col items-center justify-center rounded-xl bg-[#8DC63F] px-3 py-2 text-slate-900 shadow-md lg:py-3">
                   <div className="text-[10px] font-black uppercase tracking-widest">Base</div>
-                  <div className="aa-display whitespace-nowrap text-[clamp(24px,2.6vw,34px)] leading-tight">
+                  <div className="aa-display whitespace-nowrap text-[clamp(20px,2.4vw,34px)] leading-tight">
                     ₹ {money(basePrice)}
                   </div>
                 </div>
-                <div className="flex flex-col items-center justify-center rounded-xl bg-[#EC008C] px-3 py-3 text-white shadow-md shadow-[#EC008C]/40">
+                <div className="flex flex-col items-center justify-center rounded-xl bg-[#EC008C] px-3 py-2 text-white shadow-md shadow-[#EC008C]/40 lg:py-3">
                   <div className="text-[10px] font-black uppercase tracking-widest">Bid</div>
-                  <div className="aa-display whitespace-nowrap text-[clamp(30px,3.4vw,46px)] leading-tight">
+                  <div className="aa-display whitespace-nowrap text-[clamp(26px,3.2vw,46px)] leading-tight">
                     ₹ {money(currentBid)}
                   </div>
                 </div>
               </div>
 
-              {/* Highest bid */}
               {state?.highest_team_name && (
                 <div className="mt-3 flex max-w-xl items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5">
                   <div className="flex min-w-0 items-center gap-2.5">
@@ -475,8 +438,7 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
                       <Gavel size={16} className="-rotate-45" />
                     </span>
                     <div className="min-w-0 truncate text-xs font-semibold text-white/70 lg:text-sm">
-                      Highest Bid:{" "}
-                      <span className="font-black text-[#8DC63F]">{state.highest_team_name}</span>
+                      Highest Bid: <span className="font-black text-[#8DC63F]">{state.highest_team_name}</span>
                     </div>
                   </div>
                   <span className="shrink-0 rounded bg-[#EC008C] px-2.5 py-1 text-xs font-black text-white">
@@ -488,7 +450,6 @@ export default function AuctionHero({ auction, state, viewerCount = 0, publicSlu
           </div>
         </div>
 
-        {/* Stats bar: laptop/tablet only, hidden when there is no value */}
         {hasStats && <StatsBar stats={stats} html={playerInfoHtml} />}
       </section>
     </>
