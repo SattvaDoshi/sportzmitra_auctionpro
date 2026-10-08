@@ -45,6 +45,7 @@ export default function PublicDashboardView() {
   const [activeTab, setActiveTab] = useState("teams");
   const [category, setCategory] = useState("ALL");
   const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState("NAME_ASC");
 
   // Pagination state for Teams tab
   const [currentPage, setCurrentPage] = useState(1);
@@ -160,6 +161,21 @@ export default function PublicDashboardView() {
     });
   }
 
+  function sortRows(rows = []) {
+    return [...rows].sort((a, b) => {
+      if (sortBy === "NAME_ASC") {
+        return String(a.player_name || "").localeCompare(String(b.player_name || ""), undefined, { sensitivity: "base" });
+      } else if (sortBy === "NAME_DESC") {
+        return String(b.player_name || "").localeCompare(String(a.player_name || ""), undefined, { sensitivity: "base" });
+      } else if (sortBy === "PRICE_DESC") {
+        return Number(b.sold_price || b.base_price || 0) - Number(a.sold_price || a.base_price || 0);
+      } else if (sortBy === "PRICE_ASC") {
+        return Number(a.sold_price || a.base_price || 0) - Number(b.sold_price || b.base_price || 0);
+      }
+      return 0;
+    });
+  }
+
   const filteredTeams = useMemo(() => {
     const rawTeams = data?.teamsSummary || data?.teams || [];
     const q = search.trim().toLowerCase();
@@ -270,6 +286,19 @@ export default function PublicDashboardView() {
                 </select>
               )}
 
+              {activeTab !== "teams" && activeTab !== "category" && (
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="max-w-[40%] rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-bold text-slate-700 outline-none focus:border-[#EC008C] sm:px-3"
+                >
+                  <option value="NAME_ASC">Name (A-Z)</option>
+                  <option value="NAME_DESC">Name (Z-A)</option>
+                  <option value="PRICE_DESC">Price (High to Low)</option>
+                  <option value="PRICE_ASC">Price (Low to High)</option>
+                </select>
+              )}
+
               <div className="relative flex-1 sm:w-60 sm:flex-none">
                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
@@ -317,14 +346,14 @@ export default function PublicDashboardView() {
             />
           )}
           {activeTab === "sold" && (
-            <PlayerList rows={filterRows(data.soldPlayers)} type="sold" onPhotoClick={setPreviewPlayer} />
+            <PlayerList rows={sortRows(filterRows(data.soldPlayers))} type="sold" onPhotoClick={setPreviewPlayer} />
           )}
           {activeTab === "unsold" && (
-            <PlayerList rows={filterRows(data.unsoldPlayers)} type="unsold" onPhotoClick={setPreviewPlayer} />
+            <PlayerList rows={sortRows(filterRows(data.unsoldPlayers))} type="unsold" onPhotoClick={setPreviewPlayer} />
           )}
           {activeTab === "pending" && (
             <PlayerList
-              rows={sortByName(filterRows(data.pendingPlayers))}
+              rows={sortRows(filterRows(data.pendingPlayers))}
               type="pending"
               onPhotoClick={setPreviewPlayer}
             />

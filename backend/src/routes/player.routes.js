@@ -229,7 +229,7 @@ router.get("/auction/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
        FROM players p
        LEFT JOIN org_players op ON op.id = p.org_player_id
        LEFT JOIN teams t ON t.id = p.sold_team_id
-       WHERE p.auction_id = ?
+       WHERE p.auction_id = ? AND COALESCE(p.is_deleted, 0) = 0
        ORDER BY p.id`,
       [auctionId]
     );
@@ -767,6 +767,84 @@ router.patch("/:playerId/correction", authMiddleware, requireRole("AUCTION_ADMIN
     sendError(res, error);
   } finally {
     conn.release();
+  }
+});
+
+router.post("/bulk-delete", authMiddleware, requireRole("AUCTION_ADMIN", "SUPER_ADMIN"), async (req, res) => {
+  const connection = await pool.getConnection();
+
+  try {
+    const playerIds = Array.isArray(req.body.playerIds)
+      ? req.body.playerIds.map((id) => Number(id)).filter(Boolean)
+      : [];
+
+    if (playerIds.length === 0) {
+      return res.status(400).json({ message: "Please select at least one player" });
+    }
+
+    await connection.beginTransaction();
+
+    const placeholders = playerIds.map(() => "?").join(",");
+    const [players] = await connection.query(
+      `SELECT id, auction_id, player_name, photo_url
+       FROM players
+       WHERE id IN (${placeholders})
+         AND COALESCE(is_deleted, 0) = 0`,
+      playerIds
+    );
+
+    if (players.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Selected players were not found" });
+    }
+
+    const auctionIds = [...new Set(players.map((p) => Number(p.auction_id)))];
+    for (const auctionId of auctionIds) {
+      if (!(await assertAuctionAccess(req, res, auctionId))) {
+        await connection.rollback();
+        return;
+      }
+    }
+
+    const validIds = players.map((p) => Number(p.id));
+    const validPlaceholders = validIds.map(() => "?").join(",");
+
+    // Delete photos locally if they exist
+    for (const p of players) {
+      if (p.photo_url && p.photo_url.includes("/uploads/players/")) {
+        try {
+          const filename = p.photo_url.split("/uploads/players/")[1];
+          if (filename) {
+            const filepath = path.join(playerPhotoDir, filename);
+            if (fs.existsSync(filepath)) {
+              fs.unlinkSync(filepath);
+            }
+          }
+        } catch (e) {
+          console.error("Failed to delete photo file", e);
+        }
+      }
+    }
+
+    await connection.query(
+      `UPDATE players
+       SET is_deleted = 1, photo_url = NULL, original_photo_url = NULL
+       WHERE id IN (${validPlaceholders})`,
+      validIds
+    );
+
+    await connection.commit();
+
+    res.json({
+      message: `${validIds.length} player${validIds.length === 1 ? "" : "s"} deleted successfully`,
+      deletedCount: validIds.length,
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error("bulk delete players error", error);
+    sendError(res, error);
+  } finally {
+    connection.release();
   }
 });
 

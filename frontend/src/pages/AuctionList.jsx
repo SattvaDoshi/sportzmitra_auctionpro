@@ -18,6 +18,7 @@ import {
   LayoutGrid,
 } from "lucide-react";
 import AdminLayout from "../components/layout/AdminLayout";
+import ConfirmDeleteModal from "../components/ui/ConfirmDeleteModal";
 import api from "../api/api";
 import { getImageUrl } from "../utils/imageUrl";
 
@@ -150,6 +151,7 @@ export default function AuctionList() {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [auctionToDeactivate, setAuctionToDeactivate] = useState(null);
 
   async function loadAuctions() {
     try {
@@ -362,23 +364,24 @@ export default function AuctionList() {
     }
   }
 
-  async function makeAuctionInactive(auction) {
-    const confirmation = window.prompt(
-      `Make auction inactive: ${auction.auction_name}?\n\nThis will hide the auction from the active list while keeping records intact.\n\nType INACTIVE to confirm.`
-    );
-    if (confirmation !== "INACTIVE") return;
+  function makeAuctionInactive(auction) {
+    setAuctionToDeactivate(auction);
+  }
 
+  async function confirmMakeAuctionInactive() {
+    if (!auctionToDeactivate) return;
     try {
       setLoading(true);
       setMessage("");
       setError("");
-      await api.patch(`/auctions/${auction.id}/inactive`, { confirm: "INACTIVE" });
+      await api.patch(`/auctions/${auctionToDeactivate.id}/inactive`, { confirm: "INACTIVE" });
       setMessage("Auction set to inactive successfully");
       await loadAuctions();
     } catch (err) {
       setError(err.response?.data?.message || "Failed to set auction inactive");
     } finally {
       setLoading(false);
+      setAuctionToDeactivate(null);
     }
   }
 
@@ -627,6 +630,17 @@ export default function AuctionList() {
           )}
         </div>
       </div>
+
+      {/* Confirm Deactivate Modal */}
+      {auctionToDeactivate && (
+        <ConfirmDeleteModal
+          title="Deactivate Auction?"
+          message={`Are you sure you want to make ${auctionToDeactivate.auction_name} inactive? This will hide the auction from the active list while keeping records intact.`}
+          confirmText="Deactivate"
+          onConfirm={confirmMakeAuctionInactive}
+          onClose={() => setAuctionToDeactivate(null)}
+        />
+      )}
 
       {/* Create Modal */}
       {showForm && (
@@ -905,9 +919,7 @@ function AuctionForm({
               className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3.5 text-sm font-semibold text-slate-900 outline-none transition-all focus:border-[#EC008C] focus:ring-4 focus:ring-[#EC008C]/10"
             >
               <option value="DRAFT">Draft</option>
-              <option value="READY">Ready</option>
               <option value="LIVE">Live</option>
-              <option value="PAUSED">Paused</option>
               <option value="COMPLETED">Completed</option>
             </select>
           </Field>

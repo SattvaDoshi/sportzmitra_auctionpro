@@ -1,10 +1,11 @@
-import { Download, Edit3, History, ImagePlus, Plus, Save, Search, Upload, Wrench, X } from "lucide-react";
+import { Download, Edit3, History, ImagePlus, Plus, Save, Search, Upload, Wrench, X, Trash2, CheckSquare, Square } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import AdminLayout from "../components/layout/AdminLayout";
 import StatusBadge from "../components/ui/StatusBadge";
+import ConfirmDeleteModal from "../components/ui/ConfirmDeleteModal";
 import api from "../api/api";
 
 const DEFAULT_PLAYER_IMAGE = "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?q=80&w=300&auto=format&fit=crop";
@@ -445,6 +446,10 @@ export default function PlayersPage() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [uploadingPlayers, setUploadingPlayers] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState([]);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
 
   async function load() {
     try {
@@ -468,6 +473,10 @@ export default function PlayersPage() {
 
   useEffect(() => { load(); }, [auctionId]);
 
+  useEffect(() => {
+    setSelectedPlayerIds((current) => current.filter((id) => players.some((p) => p.id === id)));
+  }, [players]);
+
   const filteredPlayers = useMemo(() => {
     const q = search.trim().toLowerCase();
     return players.filter((player) => {
@@ -485,6 +494,38 @@ export default function PlayersPage() {
       unsold: players.filter((p) => p.status === "UNSOLD" || p.status === "FINAL_UNSOLD").length,
     };
   }, [players]);
+
+  const filteredPlayerIds = useMemo(() => filteredPlayers.map((p) => p.id), [filteredPlayers]);
+  const allFilteredSelected = filteredPlayerIds.length > 0 && filteredPlayerIds.every((id) => selectedPlayerIds.includes(id));
+
+  function togglePlayerSelection(playerId) {
+    const id = Number(playerId);
+    setSelectedPlayerIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  }
+
+  function toggleSelectAllFiltered() {
+    if (allFilteredSelected) {
+      setSelectedPlayerIds((current) => current.filter((id) => !filteredPlayerIds.includes(id)));
+    } else {
+      setSelectedPlayerIds((current) => Array.from(new Set([...current, ...filteredPlayerIds])));
+    }
+  }
+
+  async function deleteSelectedPlayers() {
+    setMessage("");
+    setError("");
+    setShowConfirmDelete(false);
+
+    try {
+      const response = await api.post("/players/bulk-delete", { playerIds: selectedPlayerIds });
+      setMessage(response.data?.message || "Selected players deleted successfully");
+      setSelectedPlayerIds([]);
+      setSelectionMode(false);
+      load();
+    } catch (err) {
+      setError(err.response?.data?.message || "Failed to delete selected players");
+    }
+  }
 
   function downloadTemplate() {
     const rows = [
@@ -587,13 +628,14 @@ export default function PlayersPage() {
   async function uploadPlayers(event) {
     const file = event.target.files?.[0]; if (!file) return;
     try {
+      setUploadingPlayers(true);
       setError(""); const fd = new FormData(); fd.append("file", file);
       const res = await api.post(`/players/upload/${auctionId}`, fd);
       const failed = Number(res.data?.failed || 0);
       setMessage(failed ? `Players uploaded: ${res.data.count}, failed rows: ${failed}` : "Players uploaded successfully");
       load();
     } catch (err) { console.error("upload players error", err); setError(err.response?.data?.message || "Failed to upload players"); }
-    finally { event.target.value = ""; }
+    finally { setUploadingPlayers(false); event.target.value = ""; }
   }
 
   async function uploadPhoto(file) {
@@ -718,6 +760,19 @@ export default function PlayersPage() {
                 <Download size={16} className="shrink-0" />
                 {downloadingPdf ? "Generating..." : "PDF (Category)"}
               </button>
+              <button
+                onClick={() => {
+                  setSelectionMode((v) => !v);
+                  setSelectedPlayerIds([]);
+                }}
+                className={`inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 text-xs font-semibold transition sm:px-4 sm:text-sm sm:order-6 ${
+                  selectionMode
+                    ? "border border-pink-300 bg-pink-50 text-[#EC008C] hover:bg-pink-100"
+                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {selectionMode ? "Cancel" : "Manage"}
+              </button>
             </div>
           </div>
 
@@ -768,6 +823,24 @@ export default function PlayersPage() {
                 onClose={() => setHistoryPlayer(null)}
               />
             </ModalOverlay>
+          )}
+
+          {uploadingPlayers && (
+            <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+              <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-white shadow-xl">
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-pink-600"></div>
+              </div>
+              <div className="mt-4 text-sm font-semibold text-white">Uploading players, please wait...</div>
+            </div>
+          )}
+
+          {showConfirmDelete && (
+            <ConfirmDeleteModal
+              title="Delete Players?"
+              message={`Are you sure you want to delete ${selectedPlayerIds.length} selected player(s)? This action cannot be undone.`}
+              onConfirm={deleteSelectedPlayers}
+              onClose={() => setShowConfirmDelete(false)}
+            />
           )}
 
           {/* Main Dashboard Grid */}
@@ -846,20 +919,66 @@ export default function PlayersPage() {
             </div>
 
             {/* Right Column: Player Cards Grid */}
-            <div className="lg:col-span-7 xl:col-span-8">
+            <div className="lg:col-span-7 xl:col-span-8 flex flex-col gap-4">
+              {/* Selection Toolbar (moved here so it aligns with cards) */}
+              {selectionMode && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                  <button
+                    onClick={toggleSelectAllFiltered}
+                    className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-slate-900"
+                  >
+                    {allFilteredSelected ? (
+                      <CheckSquare size={16} className="text-[#EC008C]" />
+                    ) : (
+                      <Square size={16} />
+                    )}
+                    Select all ({filteredPlayers.length})
+                  </button>
+
+                  {selectedPlayerIds.length > 0 && (
+                    <button
+                      onClick={() => setShowConfirmDelete(true)}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-pink-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-pink-700"
+                    >
+                      <Trash2 size={14} />
+                      Delete Selected ({selectedPlayerIds.length})
+                    </button>
+                  )}
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {filteredPlayers.map((player, idx) => {
-                  const isSelected = activeFocusPlayer?.id === player.id;
+                  const isSelectedForFocus = activeFocusPlayer?.id === player.id;
+                  const isChecked = selectedPlayerIds.includes(player.id);
                   return (
                     <div
                       key={player.id}
-                      onClick={() => setSelectedPlayer(player)}
+                      onClick={(e) => {
+                        if (selectionMode) {
+                          e.preventDefault();
+                          togglePlayerSelection(player.id);
+                        } else {
+                          setSelectedPlayer(player);
+                        }
+                      }}
                       className={`relative flex items-stretch gap-4 rounded-xl border p-3.5 transition cursor-pointer ${
-                        isSelected
+                        selectionMode && isChecked
+                          ? "border-[#EC008C] bg-pink-50 ring-1 ring-[#EC008C]"
+                          : isSelectedForFocus && !selectionMode
                           ? "border-pink-500 bg-pink-50/60"
                           : "border-slate-200 bg-white hover:border-slate-300"
                       }`}
                     >
+                      {selectionMode && (
+                        <div className="absolute right-3 top-3 z-10 flex h-5 w-5 items-center justify-center rounded bg-white">
+                          {isChecked ? (
+                            <CheckSquare size={20} className="text-[#EC008C]" />
+                          ) : (
+                            <Square size={20} className="text-slate-300 hover:text-slate-400" />
+                          )}
+                        </div>
+                      )}
                       <div className="relative w-20 h-24 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
                         <img
                           src={player.photo_url || DEFAULT_PLAYER_IMAGE}

@@ -21,6 +21,7 @@ import jsPDF from "jspdf";
 import AdminLayout from "../components/layout/AdminLayout";
 import LogoPicker from "../components/ui/LogoPicker";
 import TeamLogo from "../components/ui/TeamLogo";
+import ConfirmDeleteModal from "../components/ui/ConfirmDeleteModal";
 import api from "../api/api";
 
 const emptyTeam = {
@@ -485,8 +486,10 @@ export default function TeamsPage() {
   const [error, setError] = useState("");
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedTeamIds, setSelectedTeamIds] = useState([]);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [downloadingAll, setDownloadingAll] = useState(false);
+  const [uploadingTeams, setUploadingTeams] = useState(false);
   const [maxBidMap, setMaxBidMap] = useState({});
 
   async function load() {
@@ -575,19 +578,7 @@ export default function TeamsPage() {
   async function deleteSelectedTeams() {
     setMessage("");
     setError("");
-
-    if (selectedTeamIds.length === 0) {
-      setError("Please select at least one team");
-      return;
-    }
-
-    const confirmation = window.prompt(
-      `Delete ${selectedTeamIds.length} selected team${
-        selectedTeamIds.length === 1 ? "" : "s"
-      }?\n\nType DELETE to confirm.`
-    );
-
-    if (confirmation !== "DELETE") return;
+    setShowConfirmDelete(false);
 
     try {
       const response = await api.post("/teams/bulk-delete", {
@@ -727,6 +718,7 @@ export default function TeamsPage() {
     setError("");
 
     try {
+      setUploadingTeams(true);
       const fd = new FormData();
       fd.append("file", file);
       await api.post(`/teams/upload/${auctionId}`, fd);
@@ -735,6 +727,7 @@ export default function TeamsPage() {
     } catch (err) {
       setError(err.response?.data?.message || "Failed to import excel file");
     } finally {
+      setUploadingTeams(false);
       event.target.value = "";
     }
   }
@@ -880,6 +873,15 @@ export default function TeamsPage() {
             </div>
           )}
 
+          {uploadingTeams && (
+            <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+              <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-white shadow-xl">
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-[#EC008C]"></div>
+              </div>
+              <div className="mt-4 text-sm font-semibold text-white">Uploading teams, please wait...</div>
+            </div>
+          )}
+
           {/* Selection Toolbar */}
           {selectionMode && (
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -898,12 +900,21 @@ export default function TeamsPage() {
               <button
                 type="button"
                 disabled={selectedTeamIds.length === 0}
-                onClick={deleteSelectedTeams}
+                onClick={() => setShowConfirmDelete(true)}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-rose-700 disabled:opacity-40"
               >
                 <Trash2 size={13} /> Delete selected ({selectedTeamIds.length})
               </button>
             </div>
+          )}
+
+          {showConfirmDelete && (
+            <ConfirmDeleteModal
+              title="Delete Teams?"
+              message={`Are you sure you want to delete ${selectedTeamIds.length} selected team(s)? This action cannot be undone.`}
+              onConfirm={deleteSelectedTeams}
+              onClose={() => setShowConfirmDelete(false)}
+            />
           )}
 
           {/* Cards Grid */}
@@ -940,7 +951,9 @@ export default function TeamsPage() {
                   team.players_bought || team.sold_players_count || 0
                 );
                 const maxSquad = Number(
-                  team.player_limit || DEFAULT_MAX_SQUAD
+                  team.player_limit != null
+                    ? team.player_limit
+                    : auction?.players_per_team || DEFAULT_MAX_SQUAD
                 );
                 const progressPct =
                   maxSquad > 0

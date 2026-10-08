@@ -3,6 +3,7 @@ const path = require("path");
 const { randomUUID } = require("crypto");
 const sharp = require("sharp");
 const heicConvert = require("heic-convert");
+const { detectFaceBox, applyBrightnessContrast, isOpenCVAvailable } = require("./faceDetector");
 
 // ---------------------------------------------------------------------------
 // Google Drive Service Account support (optional)
@@ -94,40 +95,83 @@ async function createFaceFocusedCrop(buffer, baseName) {
     throw new Error("Invalid image dimensions");
   }
 
-  // Face-focused safe crop: portrait photos usually have the face in the upper-middle.
-  // This keeps the face/head area without destroying quality and falls back safely when no ML detector is available.
+  // ── Re-orientate buffer first so OpenCV sees the same pixels as sharp ────
+  const orientedBuffer = await sharp(buffer, { failOn: "none" })
+    .rotate()
+    .jpeg({ quality: 95 })
+    .toBuffer();
+
   let left = 0;
   let top = 0;
   let size = Math.min(width, height);
+  let mode = "heuristic_crop";
 
-  if (height > width) {
-    left = 0;
-    top = Math.round((height - width) * 0.22); // top-biased crop for head/shoulder profile photos
-    size = width;
-  } else if (width > height) {
-    top = 0;
-    left = Math.round((width - height) / 2);
-    size = height;
+  // ── Attempt DNN face detection ────────────────────────────────────────────
+  const face = await detectFaceBox(orientedBuffer);
+
+  if (face && face.width > 0 && face.height > 0) {
+    // Face found – build a generous square crop centred on the face
+    const side = Math.floor(Math.max(face.width, face.height) * 1.8);
+    const centerX = face.x + Math.floor(face.width / 2);
+    const centerY = face.y + Math.floor(face.height / 2);
+
+    const raw_left  = centerX - Math.floor(side / 2);
+    const raw_top   = centerY - Math.floor(side / 2);
+    const raw_right  = raw_left + side;
+    const raw_bottom = raw_top  + side;
+
+    left = Math.max(0, raw_left);
+    top  = Math.max(0, raw_top);
+    const clampedRight  = Math.min(raw_right,  width);
+    const clampedBottom = Math.min(raw_bottom, height);
+    size = Math.min(clampedRight - left, clampedBottom - top);
+
+    mode = "dnn_face_crop";
+    console.log(`[photoProcessor] DNN face detected – crop: left=${left} top=${top} size=${size}`);
+  } else {
+    // Fallback: portrait top-biased heuristic
+    if (height > width) {
+      left = 0;
+      top  = Math.round((height - width) * 0.22);
+      size = width;
+    } else if (width > height) {
+      top  = 0;
+      left = Math.round((width - height) / 2);
+      size = height;
+    }
+    console.log(`[photoProcessor] No face detected – using heuristic crop.`);
   }
 
   left = Math.max(0, Math.min(left, width - size));
-  top = Math.max(0, Math.min(top, height - size));
+  top  = Math.max(0, Math.min(top,  height - size));
+  if (size <= 0) size = Math.min(width, height);
 
   const filename = `${baseName}-face.jpg`;
   const absolutePath = path.join(processedDir, filename);
 
-  await sharp(buffer, { failOn: "none" })
-    .rotate()
+  // ── Crop & resize with Sharp ──────────────────────────────────────────────
+  let croppedBuffer = await sharp(orientedBuffer, { failOn: "none" })
     .extract({ left, top, width: size, height: size })
-    .resize({ width: 768, height: 768, fit: "cover", withoutEnlargement: false })
-    .jpeg({ quality: 94, mozjpeg: true })
+    .resize({ width: 768, height: 768, fit: "cover", withoutEnlargement: false, kernel: "lanczos3" })
+    .jpeg({ quality: 95 })
+    .toBuffer();
+
+  // ── Apply auto brightness/contrast via OpenCV if available ───────────────
+  if (isOpenCVAvailable()) {
+    croppedBuffer = await applyBrightnessContrast(croppedBuffer);
+  }
+
+  // ── Final save with DPI metadata via Sharp ───────────────────────────────
+  await sharp(croppedBuffer)
+    .withMetadata({ density: 300 })
+    .jpeg({ quality: 92, mozjpeg: true })
     .toFile(absolutePath);
 
   return {
     filename,
     relativePath: `players/processed/${filename}`,
     absolutePath,
-    crop: { left, top, size, originalWidth: width, originalHeight: height, mode: "face_focused_safe_crop" },
+    crop: { left, top, size, originalWidth: width, originalHeight: height, mode },
   };
 }
 

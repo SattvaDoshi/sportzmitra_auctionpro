@@ -52,11 +52,13 @@ router.get("/auction/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
       This keeps Teams page working across old/new DB schemas.
     */
     const [rows] = await pool.query(
-      `SELECT *
-       FROM teams
-       WHERE auction_id = ?
-         AND COALESCE(is_deleted, 0) = 0
-       ORDER BY team_name`,
+      `SELECT t.*, 
+              COALESCE(t.player_limit, a.players_per_team) AS player_limit
+       FROM teams t
+       JOIN auctions a ON a.id = t.auction_id
+       WHERE t.auction_id = ?
+         AND COALESCE(t.is_deleted, 0) = 0
+       ORDER BY t.team_name`,
       [auctionId]
     );
 

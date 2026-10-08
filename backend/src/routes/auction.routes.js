@@ -398,6 +398,28 @@ router.put(
         [next_player_selection_mode || "RANDOM_WITH_ADMIN_CONFIRM", Number(minimum_bid_increment || 100), auctionId]
       );
 
+      // Cascade total purse update to existing teams
+      if (Number(existing.total_purse_per_team) !== newPurse) {
+        await conn.query(
+          `UPDATE teams
+           SET remaining_purse = remaining_purse + (? - total_purse),
+               total_purse = ?
+           WHERE auction_id = ? AND COALESCE(is_deleted, 0) = 0`,
+          [newPurse, newPurse, auctionId]
+        );
+      }
+
+      // Always sync player_limit on teams — covers: initial set, updates, and teams
+      // created before a limit was configured (player_limit IS NULL).
+      if (newPlayers > 0) {
+        await conn.query(
+          `UPDATE teams
+           SET player_limit = ?
+           WHERE auction_id = ? AND COALESCE(is_deleted, 0) = 0`,
+          [newPlayers, auctionId]
+        );
+      }
+
       await conn.commit();
       res.json({ message: "Auction updated successfully" });
     } catch (error) {
