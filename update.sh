@@ -22,6 +22,21 @@ echo "  └───────────────────────
 echo -e "${RESET}"
 
 # =============================================================================
+# 0. Ensure Node.js 22 LTS is installed (fixes googleapis EBADENGINE warnings)
+# =============================================================================
+NODE_MAJOR=$(node -v 2>/dev/null | grep -oP '(?<=v)\d+' | head -1 || echo "0")
+if [[ "$NODE_MAJOR" -lt 22 ]]; then
+  info "Node.js v${NODE_MAJOR} detected — upgrading to Node.js 22 LTS..."
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  apt-get install -y nodejs
+  # Reinstall PM2 globally with the new Node
+  npm install -g pm2@latest
+  success "Node.js $(node -v) installed."
+else
+  success "Node.js $(node -v) — already on v22+, no upgrade needed."
+fi
+
+# =============================================================================
 # 1. Pull latest code from GitHub
 # =============================================================================
 info "Pulling latest code from GitHub..."
@@ -37,9 +52,14 @@ rsync -a --exclude='node_modules' --exclude='.env' --exclude='logs' \
   "$REPO_DIR/backend/" "$APP_DIR/backend/"
 success "Backend files synced."
 
-info "Installing backend dependencies (if any changed)..."
+# Remove any broken/partial opencv install that may block npm install
+info "Cleaning any broken native module installs..."
 cd "$APP_DIR/backend"
-npm install --omit=dev
+npm uninstall @u4/opencv4nodejs 2>/dev/null || true
+rm -rf node_modules/@u4 2>/dev/null || true
+
+info "Installing backend dependencies (if any changed)..."
+npm install --omit=dev --ignore-engines
 success "Backend dependencies up to date."
 
 # Run migrations in case schema changed
@@ -57,7 +77,7 @@ success "Frontend files synced."
 
 info "Installing frontend dependencies (if any changed)..."
 cd "$APP_DIR/frontend"
-npm install
+npm install --ignore-engines
 success "Frontend dependencies up to date."
 
 info "Building frontend for production..."
@@ -65,10 +85,14 @@ npm run build
 success "Frontend build complete."
 
 # =============================================================================
-# 4. Reload backend (zero-downtime)
+# 4. Update PM2 memory limit & reload (zero-downtime)
 # =============================================================================
+info "Updating PM2 memory limit to 1G..."
+pm2 set sportzmitra-auction:max_memory_restart 1G 2>/dev/null || true
+
 info "Reloading PM2 workers (zero-downtime)..."
 pm2 reload sportzmitra-auction
+pm2 save
 success "PM2 reloaded."
 
 # =============================================================================
@@ -86,4 +110,6 @@ echo ""
 echo -e "${BOLD}${GREEN}Update complete!${RESET}"
 echo "  Frontend: https://auction.sportzmitrastore.com"
 echo "  API:      https://api.auction.sportzmitrastore.com"
+echo "  Node.js:  $(node -v)"
+echo "  PM2:      $(pm2 -v)"
 echo ""
