@@ -85,21 +85,19 @@ async function saveOriginalJpeg(buffer, baseName) {
 }
 
 async function createFaceFocusedCrop(buffer, baseName) {
-  const image = sharp(buffer, { failOn: "none" }).rotate();
-  const metadata = await image.metadata();
+  // ── Re-orientate buffer first so OpenCV and sharp see the same pixels ────
+  const orientedBuffer = await sharp(buffer, { failOn: "none" })
+    .rotate()
+    .jpeg({ quality: 95 })
+    .toBuffer();
 
+  const metadata = await sharp(orientedBuffer).metadata();
   const width = Number(metadata.width || 0);
   const height = Number(metadata.height || 0);
 
   if (!width || !height) {
     throw new Error("Invalid image dimensions");
   }
-
-  // ── Re-orientate buffer first so OpenCV sees the same pixels as sharp ────
-  const orientedBuffer = await sharp(buffer, { failOn: "none" })
-    .rotate()
-    .jpeg({ quality: 95 })
-    .toBuffer();
 
   let left = 0;
   let top = 0;
