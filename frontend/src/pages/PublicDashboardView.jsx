@@ -497,7 +497,9 @@ function PhotoLightbox({ player, onClose }) {
           </div>
         )}
         <div className="text-center text-white">
-          <div className="text-lg font-black uppercase tracking-tight sm:text-xl">{player.player_name}</div>
+          <div className="text-lg font-black uppercase tracking-tight sm:text-xl">
+            {player.serial_number ? `${player.serial_number} - ` : ""}{player.player_name}
+          </div>
           <div className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-white/70">
             {[player.category, player.player_role].filter(Boolean).join(" • ")}
           </div>
@@ -539,7 +541,7 @@ function PlayerCard({ p, type, onPhotoClick }) {
           />
           <div className="min-w-0">
             <div className="truncate text-[13px] font-bold leading-tight text-slate-900 sm:text-sm">
-              {p.player_name}
+              {p.serial_number ? `${p.serial_number} - ` : ""}{p.player_name}
             </div>
             <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[9px] font-semibold uppercase text-slate-500 sm:text-[10px]">
               <span className="truncate">{p.category || "N/A"}</span>
@@ -675,7 +677,9 @@ function TeamPlayersModal({ team, players, onClose, onPhotoClick }) {
                       onClick={onPhotoClick ? () => onPhotoClick(p) : undefined}
                     />
                     <div className="min-w-0">
-                      <div className="truncate font-bold text-slate-900">{p.player_name}</div>
+                      <div className="truncate font-bold text-slate-900">
+                        {p.serial_number ? `${p.serial_number} - ` : ""}{p.player_name}
+                      </div>
                       <div className="mt-0.5 flex items-center gap-2 text-[10px] font-semibold uppercase text-slate-500">
                         <span>{p.category || "N/A"}</span>
                         <span className="h-1 w-1 rounded-full bg-slate-300"></span>

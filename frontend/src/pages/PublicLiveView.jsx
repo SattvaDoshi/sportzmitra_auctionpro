@@ -868,7 +868,7 @@ export default function PublicLiveView() {
               <div className="relative mx-auto w-full max-w-[380px] md:mx-0 md:max-w-none">
                 <PlayerPhoto
                   url={currentPlayer?.photo_url}
-                  name={currentPlayer?.player_name}
+                  name={currentPlayer?.serial_number ? `${currentPlayer.serial_number} - ${currentPlayer.player_name}` : currentPlayer?.player_name}
                   className="aspect-[4/5] w-full md:aspect-auto md:h-full md:min-h-[420px] lg:min-h-[480px]"
                 />
               </div>
@@ -879,7 +879,7 @@ export default function PublicLiveView() {
                 <div className="flex flex-col items-center text-center md:items-start md:text-left">
                   <PlayerName
                     as="h2"
-                    name={currentPlayer?.player_name}
+                    name={currentPlayer?.serial_number ? `${currentPlayer.serial_number} - ${currentPlayer.player_name}` : currentPlayer?.player_name}
                     jersey={currentPlayer?.jersey_number}
                     className="text-[clamp(40px,5.4vw,96px)]"
                   />
@@ -985,7 +985,7 @@ function CelebrationOverlay({ celebration }) {
         <div className="p-3 md:p-5">
           <PlayerPhoto
             url={p.photo_url}
-            name={p.player_name}
+            name={p.serial_number ? `${p.serial_number} - ${p.player_name}` : p.player_name}
             className="aspect-[4/3] w-full md:aspect-auto md:h-full md:min-h-[460px]"
           />
         </div>
@@ -1002,7 +1002,7 @@ function CelebrationOverlay({ celebration }) {
 
           <div className="flex flex-col items-center md:items-start">
             <PlayerName
-              name={p.player_name}
+              name={p.serial_number ? `${p.serial_number} - ${p.player_name}` : p.player_name}
               jersey={p.jersey_number}
               className="text-[clamp(34px,5vw,80px)]"
             />
