@@ -65,7 +65,7 @@ router.get("/auction/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
     const [soldRows] = await pool.query(
       `SELECT sold_team_id AS team_id, COUNT(*) AS cnt, SUM(sold_price) AS spent
        FROM players
-       WHERE auction_id = ? AND status = 'SOLD' AND sold_team_id IS NOT NULL
+       WHERE auction_id = ? AND status = 'SOLD' AND sold_team_id IS NOT NULL AND COALESCE(is_deleted, 0) = 0
        GROUP BY sold_team_id`,
       [auctionId]
     );
