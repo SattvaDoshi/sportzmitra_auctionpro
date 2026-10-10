@@ -1,4 +1,3 @@
-// ===================== AuctionHero.jsx =====================
 import { useMemo, useState } from "react";
 import { Eye, Gavel } from "lucide-react";
 import { getImageUrl } from "../utils/imageUrl";
@@ -28,11 +27,11 @@ function parsePlayerInfo(html) {
   if (!html || typeof window === "undefined") return { hasContent: false, stats: [] };
 
   const doc = new DOMParser().parseFromString(String(html), "text/html");
-  const text = (doc.body.textContent || "").replace(/\u00a0/g, " ").trim();
+  const text = (doc.body.textContent || "").replace(/ /g, " ").trim();
   if (!text) return { hasContent: false, stats: [] };
 
   const stats = [];
-  const clean = (s) => String(s || "").replace(/\u00a0/g, " ").trim();
+  const clean = (s) => String(s || "").replace(/ /g, " ").trim();
 
   const table = doc.querySelector("table");
   if (table) {
@@ -66,11 +65,56 @@ function parsePlayerInfo(html) {
 
 /* ---------- small visual helpers ---------- */
 
+/* SportzMitra logo. File lives in frontend/public, so it is served from the site root.
+   Hides itself if the file is missing. */
+function SportzMitraLogo({ className = "" }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return (
+    <img
+      src="/sportzmitra-logo.png"
+      alt="SportzMitra"
+      draggable="false"
+      onError={() => setFailed(true)}
+      className={`w-auto shrink-0 object-contain ${className}`}
+    />
+  );
+}
+
+/* Role and category side by side (role as text, category as a chip) */
+function RoleCategory({ role, category, size = "sm" }) {
+  if (!role && !category) return null;
+  const isLg = size === "lg";
+  return (
+    <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${isLg ? "mt-2" : "mt-0.5"}`}>
+      {role && (
+        <span
+          className={`font-black uppercase tracking-wide text-[#ff7cc6] ${
+            isLg ? "text-sm lg:text-base" : "text-[11px]"
+          }`}
+        >
+          {role}
+        </span>
+      )}
+      {role && category && <span className="h-1 w-1 shrink-0 rounded-full bg-white/30" />}
+      {category && (
+        <span
+          className={`max-w-full truncate rounded-full border border-[#8DC63F]/60 bg-[#8DC63F]/15 font-black uppercase tracking-wide text-[#b9e36d] ${
+            isLg ? "px-3 py-0.5 text-xs" : "px-2 py-px text-[9px]"
+          }`}
+        >
+          {category}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /* Small square photo used in the compact mobile card */
 function MobilePlayerPhoto({ url, name }) {
   const photo = getImageUrl(url);
   const [failed, setFailed] = useState(false);
-  const box = "h-[84px] w-[68px] shrink-0 rounded-xl border border-white/20 bg-white/5";
+  const box = "h-[96px] w-[78px] shrink-0 rounded-xl border border-white/20 bg-white/5";
   if (photo && !failed) {
     return (
       <img
@@ -159,7 +203,6 @@ export default function AuctionHero({ auction, state, viewerCount = 0 }) {
   const roundNo = state?.round_number ?? state?.round_no ?? state?.round;
 
   const category = state?.category ? String(state.category).trim() : "";
-  const showCategory = !!category;
 
   const playerInfoHtml = state?.player_info;
   const { hasContent: hasStats, stats } = useMemo(() => parsePlayerInfo(playerInfoHtml), [playerInfoHtml]);
@@ -270,16 +313,21 @@ export default function AuctionHero({ auction, state, viewerCount = 0 }) {
       <div className="md:hidden">
         <header>
           <div className="flex items-center justify-between gap-2">
-            {auction?.auction_logo_url ? (
-              <img src={auction.auction_logo_url} alt="Auction logo" className="h-9 w-auto max-w-[45%] object-contain" />
-            ) : (
-              <Gavel className="h-7 w-7 shrink-0 -rotate-45 text-[#EC008C]" />
-            )}
-            <span className="flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-slate-700 shadow-md">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
-              <Eye size={12} className="text-emerald-500" />
-              {viewerCount} LIVE
-            </span>
+            <div className="min-w-0 max-w-[45%]">
+              {auction?.auction_logo_url ? (
+                <img src={auction.auction_logo_url} alt="Auction logo" className="h-9 w-auto max-w-full object-contain" />
+              ) : (
+                <Gavel className="h-7 w-7 shrink-0 -rotate-45 text-[#EC008C]" />
+              )}
+            </div>
+            <div className="flex min-w-0 items-center gap-2">
+              <SportzMitraLogo className="h-8 max-w-[90px]" />
+              <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-slate-700 shadow-md">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+                <Eye size={12} className="text-emerald-500" />
+                {viewerCount} LIVE
+              </span>
+            </div>
           </div>
           <h1 className="mt-2 break-words text-center text-xl font-black italic uppercase leading-tight tracking-tight text-[#EC008C]">
             {auction?.auction_name || "Auction"}
@@ -291,43 +339,34 @@ export default function AuctionHero({ auction, state, viewerCount = 0 }) {
 
         {/* Compact player card */}
         <section className="mt-2.5 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#3a1238] to-[#220a21] p-2.5 text-white shadow-xl">
-          {/* Round + category */}
-          <div className="flex items-center justify-between gap-2 px-0.5">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-white/70">
-              {roundNo ? <>Round {roundNo} <span className="mx-1 text-white/30">|</span></> : null}
-              Current Player
-            </div>
-            {showCategory && (
-              <span className="max-w-[45%] truncate rounded-full border border-[#8DC63F]/60 bg-[#8DC63F]/15 px-2.5 py-px text-[9px] font-black uppercase tracking-wide text-[#b9e36d]">
-                {category}
-              </span>
-            )}
+          {/* Round */}
+          <div className="px-0.5 text-[10px] font-bold uppercase tracking-wider text-white/70">
+            {roundNo ? <>Round {roundNo} <span className="mx-1 text-white/30">|</span></> : null}
+            Current Player
           </div>
 
           <div className="mt-2 flex gap-3">
             <MobilePlayerPhoto url={state?.photo_url} name={state?.player_name} />
 
-            <div className="flex min-w-0 flex-1 flex-col justify-between">
-              {/* Name + role */}
+            <div className="flex min-w-0 flex-1 flex-col justify-between gap-1.5">
+              {/* Name + role and category side by side */}
               <div className="min-w-0">
-                <h2 className="truncate text-[17px] font-black uppercase leading-tight text-white">
+                <h2 className="break-words text-[17px] font-black uppercase leading-tight text-white">
                   {hasPlayer ? state.player_name : "Waiting for player..."}
                   {jersey ? <span className="ml-1.5 text-[#ff1f9f]">{jersey}</span> : null}
                 </h2>
-                {role && (
-                  <div className="text-[11px] font-black uppercase tracking-wide text-[#ff7cc6]">{role}</div>
-                )}
+                <RoleCategory role={role} category={category} />
               </div>
 
-              {/* Current bid with base price as a small caption */}
-              <div className="mt-1.5 flex items-end justify-between gap-2 rounded-xl bg-[#EC008C] px-3 py-1.5 shadow-md shadow-[#EC008C]/30">
-                <div>
-                  <div className="text-[9px] font-black uppercase tracking-widest text-white/80">Current Bid</div>
-                  <div className="aa-display whitespace-nowrap text-[22px] leading-none">₹ {money(currentBid)}</div>
+              {/* Bid points with base points as a small caption */}
+              <div className="flex items-end justify-between gap-2 rounded-xl bg-[#EC008C] px-3 py-1.5 shadow-md shadow-[#EC008C]/30">
+                <div className="min-w-0">
+                  <div className="text-[9px] font-black uppercase tracking-widest text-white/80">Bid Points</div>
+                  <div className="aa-display truncate text-[22px] leading-none">{money(currentBid)}</div>
                 </div>
-                <div className="pb-0.5 text-right">
-                  <div className="text-[8px] font-black uppercase tracking-widest text-white/70">Base</div>
-                  <div className="whitespace-nowrap text-[11px] font-black text-[#d6f58f]">₹ {money(basePrice)}</div>
+                <div className="shrink-0 pb-0.5 text-right">
+                  <div className="text-[8px] font-black uppercase tracking-widest text-white/70">Base Points</div>
+                  <div className="whitespace-nowrap text-[11px] font-black text-[#d6f58f]">{money(basePrice)}</div>
                 </div>
               </div>
             </div>
@@ -374,7 +413,8 @@ export default function AuctionHero({ auction, state, viewerCount = 0 }) {
           Players<br />Passion<br />Bigger Dreams
         </p>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-3 sm:gap-4">
+          <SportzMitraLogo className="h-10 max-w-[140px] lg:h-12 lg:max-w-[170px]" />
           <span className="flex items-center gap-2 rounded-full bg-white px-3 py-2 text-[11px] font-bold text-slate-700 shadow-md sm:px-4 sm:text-xs">
             <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
             <Eye size={14} className="text-emerald-500" />
@@ -385,20 +425,13 @@ export default function AuctionHero({ auction, state, viewerCount = 0 }) {
 
       <section className="mt-4 hidden md:block">
         <div className="rounded-2xl border border-white/10 bg-[#2b0d29]/95 p-4 text-white shadow-2xl backdrop-blur-md lg:p-5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-xs font-bold uppercase tracking-wide text-white/90 lg:text-sm">
-              {roundNo ? (
-                <>
-                  Round {roundNo} <span className="mx-1.5 text-white/40">|</span>
-                </>
-              ) : null}
-              <span className={roundNo ? "text-white/70" : ""}>Current Player</span>
-            </div>
-            {showCategory && (
-              <span className="max-w-[45%] truncate rounded-full border border-[#8DC63F]/70 bg-[#8DC63F]/20 px-4 py-1 text-xs font-black uppercase tracking-wide text-[#b9e36d]">
-                {category}
-              </span>
-            )}
+          <div className="text-xs font-bold uppercase tracking-wide text-white/90 lg:text-sm">
+            {roundNo ? (
+              <>
+                Round {roundNo} <span className="mx-1.5 text-white/40">|</span>
+              </>
+            ) : null}
+            <span className={roundNo ? "text-white/70" : ""}>Current Player</span>
           </div>
 
           <div className="mt-3 flex items-center gap-4 lg:mt-4 lg:gap-7">
@@ -409,24 +442,22 @@ export default function AuctionHero({ auction, state, viewerCount = 0 }) {
                 {hasPlayer ? state.player_name : "Waiting for player..."}
                 {jersey ? <span className="ml-2 text-[#ff1f9f]">{jersey}</span> : null}
               </h2>
-              {role && (
-                <div className="mt-1.5 text-sm font-black uppercase tracking-wide text-[#ff7cc6] lg:text-base">
-                  {role}
-                </div>
-              )}
+
+              {/* Role and category side by side */}
+              <RoleCategory role={role} category={category} size="lg" />
 
               {/* Base | Bid */}
               <div className="mt-3 grid max-w-xl grid-cols-[1fr_1.25fr] gap-3 lg:mt-4">
-                <div className="flex flex-col items-center justify-center rounded-xl bg-[#8DC63F] px-3 py-2 text-slate-900 shadow-md lg:py-3">
-                  <div className="text-[10px] font-black uppercase tracking-widest">Base</div>
-                  <div className="aa-display whitespace-nowrap text-[clamp(20px,2.4vw,34px)] leading-tight">
-                    ₹ {money(basePrice)}
+                <div className="flex min-w-0 flex-col items-center justify-center rounded-xl bg-[#8DC63F] px-3 py-2 text-slate-900 shadow-md lg:py-3">
+                  <div className="text-[10px] font-black uppercase tracking-widest">Base Points</div>
+                  <div className="aa-display max-w-full truncate text-[clamp(20px,2.4vw,34px)] leading-tight">
+                    {money(basePrice)}
                   </div>
                 </div>
-                <div className="flex flex-col items-center justify-center rounded-xl bg-[#EC008C] px-3 py-2 text-white shadow-md shadow-[#EC008C]/40 lg:py-3">
-                  <div className="text-[10px] font-black uppercase tracking-widest">Bid</div>
-                  <div className="aa-display whitespace-nowrap text-[clamp(26px,3.2vw,46px)] leading-tight">
-                    ₹ {money(currentBid)}
+                <div className="flex min-w-0 flex-col items-center justify-center rounded-xl bg-[#EC008C] px-3 py-2 text-white shadow-md shadow-[#EC008C]/40 lg:py-3">
+                  <div className="text-[10px] font-black uppercase tracking-widest">Bid Points</div>
+                  <div className="aa-display max-w-full truncate text-[clamp(26px,3.2vw,46px)] leading-tight">
+                    {money(currentBid)}
                   </div>
                 </div>
               </div>
