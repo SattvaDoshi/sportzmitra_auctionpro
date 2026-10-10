@@ -1,4 +1,3 @@
-// ===================== PublicDashboardView.jsx =====================
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -6,8 +5,6 @@ import {
   Trophy,
   Clock,
   XCircle,
-  ChevronLeft,
-  ChevronRight,
   Shield,
   UserCheck,
   UserMinus,
@@ -20,6 +17,7 @@ import AuctionHero from "../components/AuctionHero";
 import TeamLogo from "../components/ui/TeamLogo";
 import socket from "../utils/socket";
 
+/* Plain number, no currency symbol */
 function money(value) {
   return Number(value || 0).toLocaleString("en-IN");
 }
@@ -36,13 +34,6 @@ function getAge(p) {
   return a === undefined || a === null || a === "" ? "-" : a;
 }
 
-/* Alphabetical (case-insensitive) sort by player name */
-function sortByName(rows = []) {
-  return [...rows].sort((a, b) =>
-    String(a.player_name || "").localeCompare(String(b.player_name || ""), undefined, { sensitivity: "base" })
-  );
-}
-
 export default function PublicDashboardView() {
   const { publicSlug } = useParams();
   const [data, setData] = useState(null);
@@ -52,10 +43,6 @@ export default function PublicDashboardView() {
   const [category, setCategory] = useState("ALL");
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("NAME_ASC");
-
-  // Pagination state for Teams tab
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 8;
 
   // Team players modal + enlarged photo viewer
   const [viewingTeam, setViewingTeam] = useState(null);
@@ -173,15 +160,16 @@ export default function PublicDashboardView() {
         return String(a.player_name || "").localeCompare(String(b.player_name || ""), undefined, { sensitivity: "base" });
       } else if (sortBy === "NAME_DESC") {
         return String(b.player_name || "").localeCompare(String(a.player_name || ""), undefined, { sensitivity: "base" });
-      } else if (sortBy === "PRICE_DESC") {
+      } else if (sortBy === "POINTS_DESC") {
         return Number(b.sold_price || b.base_price || 0) - Number(a.sold_price || a.base_price || 0);
-      } else if (sortBy === "PRICE_ASC") {
+      } else if (sortBy === "POINTS_ASC") {
         return Number(a.sold_price || a.base_price || 0) - Number(b.sold_price || b.base_price || 0);
       }
       return 0;
     });
   }
 
+  // All teams are shown together on one page (no pagination)
   const filteredTeams = useMemo(() => {
     const rawTeams = data?.teamsSummary || data?.teams || [];
     const q = search.trim().toLowerCase();
@@ -190,20 +178,6 @@ export default function PublicDashboardView() {
       (t.team_name || t.name || "").toLowerCase().includes(q)
     );
   }, [data, search]);
-
-  const totalPages = Math.ceil(filteredTeams.length / itemsPerPage) || 1;
-  const paginatedTeams = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return filteredTeams.slice(start, start + itemsPerPage);
-  }, [filteredTeams, currentPage]);
-
-  const handlePrevPage = () => {
-    if (currentPage > 1) setCurrentPage((prev) => prev - 1);
-  };
-
-  const handleNextPage = () => {
-    if (currentPage < totalPages) setCurrentPage((prev) => prev + 1);
-  };
 
   if (error) {
     return (
@@ -236,6 +210,8 @@ export default function PublicDashboardView() {
     { key: "pending", label: "Pending", Icon: Clock, count: data.pendingPlayers?.length || 0 },
   ];
 
+  const showPlayerFilters = activeTab !== "teams" && activeTab !== "category";
+
   return (
     <div
       className="min-h-screen bg-slate-100/70 bg-cover bg-fixed bg-center p-2.5 font-sans text-slate-800 selection:bg-[#EC008C] selection:text-white sm:p-5 lg:p-6"
@@ -259,10 +235,7 @@ export default function PublicDashboardView() {
               {tabDefs.map(({ key, label, Icon, count }) => (
                 <button
                   key={key}
-                  onClick={() => {
-                    setActiveTab(key);
-                    setCurrentPage(1);
-                  }}
+                  onClick={() => setActiveTab(key)}
                   className={`flex min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-1 py-2 text-[11px] font-black tracking-tight transition sm:px-4 sm:py-2.5 sm:text-sm ${
                     activeTab === key
                       ? "bg-[#EC008C] text-white shadow-md shadow-[#EC008C]/20"
@@ -276,13 +249,13 @@ export default function PublicDashboardView() {
               ))}
             </div>
 
-            {/* Controls */}
-            <div className="flex w-full items-center justify-between gap-2 sm:gap-3 lg:w-auto lg:justify-end">
-              {activeTab !== "teams" && activeTab !== "category" && (
+            {/* Controls: 2-column grid on mobile, wrapping row on tablet, single row on laptop */}
+            <div className="grid w-full grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap sm:gap-3 lg:w-auto lg:flex-nowrap lg:justify-end">
+              {showPlayerFilters && (
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
-                  className="max-w-[40%] rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-bold text-slate-700 outline-none focus:border-[#EC008C] sm:px-3"
+                  className="w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-bold text-slate-700 outline-none focus:border-[#EC008C] sm:w-auto sm:px-3"
                 >
                   {categories.map((c) => (
                     <option key={c} value={c}>
@@ -292,60 +265,36 @@ export default function PublicDashboardView() {
                 </select>
               )}
 
-              {activeTab !== "teams" && activeTab !== "category" && (
+              {showPlayerFilters && (
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value)}
-                  className="max-w-[40%] rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-bold text-slate-700 outline-none focus:border-[#EC008C] sm:px-3"
+                  className="w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-bold text-slate-700 outline-none focus:border-[#EC008C] sm:w-auto sm:px-3"
                 >
                   <option value="NAME_ASC">Name (A-Z)</option>
                   <option value="NAME_DESC">Name (Z-A)</option>
-                  <option value="PRICE_DESC">Price (High to Low)</option>
-                  <option value="PRICE_ASC">Price (Low to High)</option>
+                  <option value="POINTS_DESC">Points (High to Low)</option>
+                  <option value="POINTS_ASC">Points (Low to High)</option>
                 </select>
               )}
 
-              <div className="relative flex-1 sm:w-60 sm:flex-none">
+              <div className="relative col-span-2 min-w-0 sm:col-span-1 sm:w-60 sm:flex-none">
                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
                   value={search}
-                  onChange={(e) => {
-                    setSearch(e.target.value);
-                    setCurrentPage(1);
-                  }}
+                  onChange={(e) => setSearch(e.target.value)}
                   placeholder={activeTab === "teams" ? "Search team..." : "Search player..."}
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-xs font-semibold text-slate-700 placeholder-slate-400 outline-none focus:border-[#EC008C] focus:bg-white"
                 />
               </div>
-
-              {activeTab === "teams" && (
-                <div className="flex shrink-0 items-center gap-1">
-                  <button
-                    onClick={handlePrevPage}
-                    disabled={currentPage === 1}
-                    aria-label="Previous page"
-                    className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent"
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  <button
-                    onClick={handleNextPage}
-                    disabled={currentPage === totalPages}
-                    aria-label="Next page"
-                    className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent"
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                </div>
-              )}
             </div>
           </div>
 
           {/* Active Tab View */}
           {activeTab === "teams" && (
             <TeamsGrid
-              rows={paginatedTeams}
+              rows={filteredTeams}
               auction={data.auction}
               soldPlayers={data.soldPlayers || []}
               onViewTeam={setViewingTeam}
@@ -400,7 +349,8 @@ export default function PublicDashboardView() {
   );
 }
 
-/* Responsive grid for Teams: 1 col mobile/tablet, 2 cols on laptop and up. */
+/* Responsive grid for Teams: 1 col mobile/tablet, 2 cols on laptop and up.
+   Every team is rendered on the same page. */
 function TeamsGrid({ rows = [], auction, soldPlayers = [], onViewTeam }) {
   if (!rows.length) return <Empty text="No teams found matching search criteria" />;
 
@@ -420,10 +370,17 @@ function TeamsGrid({ rows = [], auction, soldPlayers = [], onViewTeam }) {
   );
 }
 
-/* Square avatar. When a photo exists and onClick is passed, it opens the big view. */
+/* Photo avatar. When a photo exists and onClick is passed, it opens the big view.
+   sizes: xs / sm are square, lg is a portrait photo used on the player cards. */
 function SquareAvatar({ name, photoUrl, size = "sm", onClick }) {
-  const sizes = { xs: "h-8 w-8", sm: "h-10 w-10", md: "h-14 w-14" };
+  const sizes = {
+    xs: "h-8 w-8",
+    sm: "h-10 w-10",
+    md: "h-14 w-14",
+    lg: "h-[72px] w-[60px] sm:h-20 sm:w-16",
+  };
   const cls = sizes[size] || sizes.sm;
+  const radius = size === "lg" ? "rounded-lg" : "rounded-md";
   const photo = getImageUrl(photoUrl);
   const [failed, setFailed] = useState(false);
 
@@ -433,7 +390,7 @@ function SquareAvatar({ name, photoUrl, size = "sm", onClick }) {
         src={photo}
         alt={name || "Player"}
         draggable="false"
-        className={`${cls} shrink-0 rounded-md border border-slate-200 object-cover object-top ${
+        className={`${cls} shrink-0 ${radius} border border-slate-200 object-cover object-top ${
           onClick ? "cursor-zoom-in transition hover:ring-2 hover:ring-[#EC008C]/60" : ""
         }`}
         onError={() => setFailed(true)}
@@ -444,7 +401,7 @@ function SquareAvatar({ name, photoUrl, size = "sm", onClick }) {
         type="button"
         onClick={onClick}
         aria-label={`View ${name || "player"} photo`}
-        className="shrink-0 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[#EC008C]"
+        className={`shrink-0 ${radius} focus:outline-none focus-visible:ring-2 focus-visible:ring-[#EC008C]`}
       >
         {img}
       </button>
@@ -454,7 +411,9 @@ function SquareAvatar({ name, photoUrl, size = "sm", onClick }) {
   }
   return (
     <div
-      className={`${cls} flex shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-200 font-black text-slate-500`}
+      className={`${cls} flex shrink-0 items-center justify-center ${radius} border border-slate-200 bg-slate-200 font-black text-slate-500 ${
+        size === "lg" ? "text-3xl" : ""
+      }`}
     >
       {String(name || "P").charAt(0).toUpperCase()}
     </div>
@@ -498,16 +457,16 @@ function PhotoLightbox({ player, onClose }) {
             className="max-h-[75vh] w-full rounded-2xl border border-white/20 bg-white/5 object-contain shadow-2xl"
           />
         ) : (
-          <div className="flex h-64 w-64 items-center justify-center rounded-2xl bg-slate-700 text-7xl font-black text-white/70">
+          <div className="flex h-64 w-64 max-w-full items-center justify-center rounded-2xl bg-slate-700 text-7xl font-black text-white/70">
             {String(player.player_name || "P").charAt(0).toUpperCase()}
           </div>
         )}
         <div className="text-center text-white">
-          <div className="text-lg font-black uppercase tracking-tight sm:text-xl">
+          <div className="break-words text-lg font-black uppercase tracking-tight sm:text-xl">
             {player.serial_number ? `${player.serial_number} - ` : ""}{player.player_name}
           </div>
           <div className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-white/70">
-            {[player.category, player.player_role].filter(Boolean).join(" • ")}
+            {[player.player_role, player.category].filter(Boolean).join(" • ")}
           </div>
         </div>
       </div>
@@ -515,13 +474,13 @@ function PhotoLightbox({ player, onClose }) {
   );
 }
 
-/* Sold / Unsold / Pending: compact cards (same look as the View Squad cards).
-   Grid: 1 col on mobile, 2 on tablet, 3 on laptop. */
+/* Sold / Unsold / Pending: photo on the left, player properties on the right.
+   Grid: 1 col on mobile, 2 on tablet, 3 on small laptop, 4 on laptop and up. */
 function PlayerList({ rows = [], type, onPhotoClick }) {
   if (!rows.length) return <Empty text="No player data matching criteria" />;
 
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3 xl:grid-cols-4">
       {rows.map((p) => (
         <PlayerCard key={p.id} p={p} type={type} onPhotoClick={onPhotoClick} />
       ))}
@@ -529,55 +488,59 @@ function PlayerList({ rows = [], type, onPhotoClick }) {
   );
 }
 
+/* Compact card: photo on the left, all properties on the right.
+   Same card size as before - only the photo is a little bigger. */
 function PlayerCard({ p, type, onPhotoClick }) {
   const isSold = type === "sold";
   const isPending = type === "pending";
+  const age = getAge(p);
   const labelCls = "text-[8px] font-black uppercase tracking-wider text-slate-400 sm:text-[9px]";
 
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-2 shadow-sm transition hover:border-[#8DC63F] sm:p-2.5">
-      {/* Player | Final Price / Unsold Attempts */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <SquareAvatar
-            name={p.player_name}
-            photoUrl={p.photo_url}
-            size="sm"
-            onClick={onPhotoClick ? () => onPhotoClick(p) : undefined}
-          />
-          <div className="min-w-0">
-            <div className="truncate text-[13px] font-bold leading-tight text-slate-900 sm:text-sm">
-              {p.serial_number ? `${p.serial_number} - ` : ""}{p.player_name}
-            </div>
-            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[9px] font-semibold uppercase text-slate-500 sm:text-[10px]">
-              <span className="truncate">{p.category || "N/A"}</span>
-              <span className="h-1 w-1 shrink-0 rounded-full bg-slate-300" />
-              <span className="truncate">{p.player_role || "N/A"}</span>
-            </div>
-          </div>
-        </div>
-        <div className="shrink-0 text-right">
-          <div className={labelCls}>{isSold ? "Final Price" : "Unsold Attempts"}</div>
-          <div className="whitespace-nowrap text-sm font-black text-[#629221]">
-            {isSold ? `\u20B9${money(p.sold_price)}` : p.unsold_count || 0}
-          </div>
-        </div>
-      </div>
+  // Rows shown on the right (first row is highlighted)
+  const rows = [
+    isSold
+      ? { label: "Final Points", value: money(p.sold_price), highlight: true }
+      : { label: "Base Points", value: money(p.base_price), highlight: true },
+  ];
+  if (isSold) rows.push({ label: "Acquired By", value: p.sold_team_name || "-" });
+  else if (isPending && age !== "-") rows.push({ label: "Age", value: age });
 
-      {/* Acquired By / Base Price  (+ Age for pending) */}
-      <div className="mt-1.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-1.5">
-        <div className="flex min-w-0 items-baseline gap-1.5">
-          <span className={labelCls}>{isSold ? "Acquired By" : "Base Price"}</span>
-          <span className="truncate text-[11px] font-bold text-slate-800">
-            {isSold ? p.sold_team_name || "-" : `\u20B9${money(p.base_price)}`}
-          </span>
+  return (
+    <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white p-2 shadow-sm transition hover:border-[#8DC63F] sm:p-2.5">
+      {/* Photo (left) */}
+      <SquareAvatar
+        name={p.player_name}
+        photoUrl={p.photo_url}
+        size="lg"
+        onClick={onPhotoClick ? () => onPhotoClick(p) : undefined}
+      />
+
+      {/* Properties (right) */}
+      <div className="flex min-w-0 flex-1 flex-col justify-center">
+        <div className="truncate text-[13px] font-bold leading-tight text-slate-900 sm:text-sm">
+          {p.serial_number ? `${p.serial_number} - ` : ""}{p.player_name}
         </div>
-        {isPending && getAge(p) !== "-" && (
-          <div className="flex shrink-0 items-baseline gap-1.5">
-            <span className={labelCls}>Age</span>
-            <span className="text-[11px] font-bold text-slate-800">{getAge(p)}</span>
-          </div>
-        )}
+        <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[9px] font-semibold uppercase text-slate-500 sm:text-[10px]">
+          <span className="truncate">{p.player_role || "N/A"}</span>
+          <span className="h-1 w-1 shrink-0 rounded-full bg-slate-300" />
+          <span className="truncate">{p.category || "N/A"}</span>
+        </div>
+
+        <div className="mt-1.5 grid gap-1 border-t border-slate-100 pt-1.5">
+          {rows.map((r) => (
+            <div key={r.label} className="flex items-baseline justify-between gap-2">
+              <span className={labelCls}>{r.label}</span>
+              <span
+                className={`min-w-0 truncate text-right font-black ${
+                  r.highlight ? "text-sm text-[#629221]" : "text-[11px] text-slate-800"
+                }`}
+              >
+                {r.value}
+              </span>
+            </div>
+          ))}
+        </div>
+
       </div>
     </div>
   );
@@ -637,7 +600,7 @@ function TeamPlayersModal({ team, players, onClose, onPhotoClick }) {
         className="flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-slate-100 p-3 sm:p-4">
+        <div className="flex items-center justify-between gap-2 border-b border-slate-100 p-3 sm:p-4">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 sm:h-12 sm:w-12">
               {team.logo_url ? (
@@ -658,7 +621,7 @@ function TeamPlayersModal({ team, players, onClose, onPhotoClick }) {
           <button
             onClick={onClose}
             aria-label="Close"
-            className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+            className="shrink-0 rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
           >
             <XCircle size={24} />
           </button>
@@ -686,16 +649,16 @@ function TeamPlayersModal({ team, players, onClose, onPhotoClick }) {
                       <div className="truncate font-bold text-slate-900">
                         {p.serial_number ? `${p.serial_number} - ` : ""}{p.player_name}
                       </div>
-                      <div className="mt-0.5 flex items-center gap-2 text-[10px] font-semibold uppercase text-slate-500">
-                        <span>{p.category || "N/A"}</span>
-                        <span className="h-1 w-1 rounded-full bg-slate-300"></span>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-semibold uppercase text-slate-500">
                         <span>{p.player_role || "N/A"}</span>
+                        <span className="h-1 w-1 rounded-full bg-slate-300"></span>
+                        <span>{p.category || "N/A"}</span>
                       </div>
                     </div>
                   </div>
                   <div className="shrink-0 text-right">
-                    <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Sold For</div>
-                    <div className="text-sm font-black text-[#629221]">&#8377;{money(p.sold_price)}</div>
+                    <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Points</div>
+                    <div className="text-sm font-black text-[#629221]">{money(p.sold_price)}</div>
                   </div>
                 </div>
               ))}

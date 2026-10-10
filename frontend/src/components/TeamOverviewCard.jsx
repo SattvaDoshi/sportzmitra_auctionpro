@@ -1,4 +1,3 @@
-// ===================== TeamOverviewCard.jsx =====================
 import { Shield, ArrowRight, Gavel, Users } from "lucide-react";
 import TeamLogo from "../components/ui/TeamLogo";
 
@@ -15,6 +14,8 @@ import TeamLogo from "../components/ui/TeamLogo";
  * Squad count: "taken / required" (e.g. 3/10). It is derived from the live
  * soldPlayers list (and team.squad_size if the backend sends it), so it keeps
  * increasing as players get sold.
+ *
+ * All amounts are shown as plain numbers (points) - no currency symbol.
  */
 
 export const TEAM_CARD_ACCENTS = [
@@ -156,8 +157,8 @@ function MaxBid({ value, color, labelClass }) {
 function MiniMetric({ label, value, pct, color, valueClass = "text-slate-900", labelClass }) {
   return (
     <div className="min-w-0">
-      <div className={`text-[8px] font-black uppercase tracking-wide ${labelClass}`}>{label}</div>
-      <div className={`whitespace-nowrap text-[11px] font-black leading-tight ${valueClass}`}>{money(value)}</div>
+      <div className={`truncate text-[8px] font-black uppercase tracking-wide ${labelClass}`}>{label}</div>
+      <div className={`truncate text-[11px] font-black leading-tight ${valueClass}`}>{money(value)}</div>
       <Bar pct={pct} color={color} className="mt-0.5 h-1" />
     </div>
   );
@@ -189,7 +190,6 @@ export default function TeamOverviewCard({
         label: "text-slate-500",
         logoRing: `border-2 ${accent.ring} bg-white`,
         btn: "border-black/5 bg-white/90 text-slate-700 hover:bg-white",
-        watermark: "opacity-[0.08]",
       }
     : {
         card: `border ${accent.ring} ${accent.soft || "bg-white"} shadow-sm hover:shadow-md`,
@@ -198,7 +198,6 @@ export default function TeamOverviewCard({
         label: "text-slate-500",
         logoRing: `border-2 ${accent.ring} bg-slate-900`,
         btn: `${accent.btnBorder || "border-slate-200"} bg-white ${accent.btnText || "text-slate-700"} hover:bg-slate-50`,
-        watermark: "opacity-[0.06]",
       };
 
   const teamName = team.team_name || team.name;
@@ -276,12 +275,6 @@ export default function TeamOverviewCard({
 
       {/* =============== TABLET / LAPTOP: full card =============== */}
       <div className="relative hidden p-4 sm:block">
-        <Shield
-          size={130}
-          strokeWidth={1}
-          className={`pointer-events-none absolute right-1/4 -top-4 ${theme.watermark} ${accent.text}`}
-        />
-
         <div className="relative flex items-center gap-3">
           <div
             className={`flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full font-black text-white shadow-md ${theme.logoRing}`}

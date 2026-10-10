@@ -8,7 +8,7 @@ import { Gavel, Users, CalendarDays, MapPin } from "lucide-react";
 /**
  * PublicLiveView.jsx  (blue theme)
  *
- *  - header: auction logo (big) | auction name        ...   tagline + Live View + code
+ *  - header: auction logo (big) | auction name        ...   SportzMitra logo + tagline + Live View + code
  *  - stage:  [ player photo (solid bg) | panel: name, age/area, current bid + leading team, stats ]
  *  - sponsors strip
  *  - SOLD / UNSOLD: full-screen celebration card with photo, details and fireworks
@@ -56,24 +56,56 @@ function getAge(src) {
   return /^\d+$/.test(text) ? `${text} Years` : text;
 }
 
+/* Searches the whole payload (nested objects and arrays) for the player's area. */
 function getArea(src) {
   if (!src) return "";
-  const nested = [src.player, src.player_data, src.details, src.custom_fields, src.extra_fields];
 
-  /* 1. well-known names (flat or nested) */
-  for (const obj of [src, ...nested]) {
-    if (!obj || typeof obj !== "object") continue;
-    const v = obj.area ?? obj.location ?? obj.city ?? obj.player_area ?? obj.player_location ?? obj.address;
-    if (v != null && typeof v !== "object" && String(v).trim()) return String(v).trim();
-  }
+  const isText = (v) => (typeof v === "string" || typeof v === "number") && String(v).trim() !== "";
 
-  /* 2. any flat key that looks like an area field, e.g. "player_city", "area_name", "locality" */
-  for (const [k, v] of Object.entries(src)) {
-    if (SKIP_KEY_RE.test(k) || !AREA_KEY_RE.test(k)) continue;
-    if ((typeof v === "string" || typeof v === "number") && String(v).trim()) return String(v).trim();
-  }
+  const search = (node, depth) => {
+    if (node == null || depth > 4) return "";
 
-  /* 3. "Area: xyz" inside the rich-text / stats field */
+    /* arrays: [{label:"Area", value:"Bhayander"}] or [{question:"Area", answer:"..."}] */
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        if (item && typeof item === "object") {
+          const label = item.label ?? item.name ?? item.key ?? item.title ?? item.question ?? item.field;
+          const value = item.value ?? item.val ?? item.answer ?? item.response;
+          if (label != null && isText(value) && AREA_LABEL_RE.test(String(label).trim())) {
+            return String(value).trim();
+          }
+        }
+      }
+      for (const item of node) {
+        const hit = search(item, depth + 1);
+        if (hit) return hit;
+      }
+      return "";
+    }
+
+    if (typeof node === "object") {
+      /* a. keys that look like an area field at this level */
+      for (const [k, v] of Object.entries(node)) {
+        if (SKIP_KEY_RE.test(k) || !AREA_KEY_RE.test(k)) continue;
+        if (isText(v)) return String(v).trim();
+      }
+      /* b. go deeper */
+      for (const v of Object.values(node)) {
+        if (v && typeof v === "object") {
+          const hit = search(v, depth + 1);
+          if (hit) return hit;
+        }
+      }
+      return "";
+    }
+
+    return "";
+  };
+
+  const deep = search(src, 0);
+  if (deep) return deep;
+
+  /* last resort: "Area: xyz" inside the rich-text / stats field */
   return findInStatsField(src, AREA_LABEL_RE);
 }
 
@@ -434,6 +466,23 @@ function AuctionLogoBox({ url }) {
         </span>
       )}
     </div>
+  );
+}
+
+/* SportzMitra brand logo (served from frontend/public/sportzmitra-logo.png). Hidden if the file is missing. */
+function SportzMitraLogo() {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) return null;
+
+  return (
+    <img
+      src="/sportzmitra-logo.png"
+      alt="SportzMitra"
+      draggable="false"
+      onError={() => setFailed(true)}
+      className="h-10 w-auto max-w-[200px] object-contain drop-shadow-[0_0_14px_rgba(56,189,248,0.45)] sm:h-12 lg:h-16 lg:max-w-[260px]"
+    />
   );
 }
 
@@ -840,8 +889,9 @@ export default function PublicLiveView() {
               </h1>
             </div>
 
-            {/* RIGHT: tagline + status pills */}
+            {/* RIGHT: SportzMitra logo + tagline + status pills */}
             <div className="flex w-full flex-col items-start gap-2 sm:w-auto sm:items-end">
+              <SportzMitraLogo />
               <div className="hidden text-xs font-bold uppercase tracking-[0.35em] text-white/75 md:block">
                 Players &middot; Passion &middot; Bigger Dreams
               </div>
@@ -875,7 +925,7 @@ export default function PublicLiveView() {
               <div className="relative mx-auto w-full max-w-[380px] md:mx-0 md:max-w-none">
                 <PlayerPhoto
                   url={currentPlayer?.photo_url}
-                  name={currentPlayer?.serial_number ? `${currentPlayer.serial_number} - ${currentPlayer.player_name}` : currentPlayer?.player_name}
+                  name={currentPlayer?.player_name}
                   className="aspect-[4/5] w-full md:aspect-auto md:h-full md:min-h-[420px] lg:min-h-[480px]"
                 />
               </div>
@@ -886,7 +936,7 @@ export default function PublicLiveView() {
                 <div className="flex flex-col items-center text-center md:items-start md:text-left">
                   <PlayerName
                     as="h2"
-                    name={currentPlayer?.serial_number ? `${currentPlayer.serial_number} - ${currentPlayer.player_name}` : currentPlayer?.player_name}
+                    name={currentPlayer?.player_name}
                     jersey={currentPlayer?.jersey_number}
                     className="text-[clamp(40px,5.4vw,96px)]"
                   />
@@ -951,7 +1001,7 @@ export default function PublicLiveView() {
           <div className="relative z-10 flex flex-col items-center gap-2 pb-1">
             <div className="flex w-full max-w-md items-center gap-3 text-[10px] font-bold uppercase tracking-[0.3em] text-white/70">
               <span className="h-px flex-1 bg-white/25" />
-              Powered by
+              Sponsored by
               <span className="h-px flex-1 bg-white/25" />
             </div>
             <div className="flex max-w-full flex-wrap items-center justify-center gap-3">
@@ -992,7 +1042,7 @@ function CelebrationOverlay({ celebration }) {
         <div className="p-3 md:p-5">
           <PlayerPhoto
             url={p.photo_url}
-            name={p.serial_number ? `${p.serial_number} - ${p.player_name}` : p.player_name}
+            name={p.player_name}
             className="aspect-[4/3] w-full md:aspect-auto md:h-full md:min-h-[460px]"
           />
         </div>
@@ -1009,7 +1059,7 @@ function CelebrationOverlay({ celebration }) {
 
           <div className="flex flex-col items-center md:items-start">
             <PlayerName
-              name={p.serial_number ? `${p.serial_number} - ${p.player_name}` : p.player_name}
+              name={p.player_name}
               jersey={p.jersey_number}
               className="text-[clamp(34px,5vw,80px)]"
             />
@@ -1017,9 +1067,9 @@ function CelebrationOverlay({ celebration }) {
           </div>
 
           <div className="grid w-full grid-cols-2 gap-2 sm:gap-3">
-              <InfoBox icon={CalendarDays} label="Age" value={p.age || "-"} />
-              <InfoBox icon={MapPin} label="Area" value={p.area || "-"} />
-            </div>
+            <InfoBox icon={CalendarDays} label="Age" value={p.age || "-"} />
+            <InfoBox icon={MapPin} label="Area" value={p.area || "-"} />
+          </div>
 
           {isSold && (
             <div className="w-full rounded-2xl border border-amber-300/50 bg-[#041533]/80 p-4">
