@@ -131,6 +131,17 @@ router.get("/auction/:auctionId/reports/team-summary", async (req, res) => {
 // ── GET /api/public/auctions ─────────────────────────────────────────────────
 router.get("/auctions", async (req, res) => {
   try {
+    // Auto-complete any non-live auctions whose auction_date has passed.
+    // This runs cheaply and means admins never have to manually flip status.
+    await pool.query(
+      `UPDATE auctions
+       SET status = 'COMPLETED', completed_at = NOW()
+       WHERE status NOT IN ('LIVE', 'PAUSED', 'COMPLETED')
+         AND auction_date IS NOT NULL
+         AND auction_date < CURDATE()
+         AND COALESCE(is_deleted, 0) = 0`
+    );
+
     const [rows] = await pool.query(
       `SELECT
          a.id,
@@ -145,7 +156,10 @@ router.get("/auctions", async (req, res) => {
        FROM auctions a
        LEFT JOIN organizations o ON a.organization_id = o.id
        WHERE a.is_active = 1 AND COALESCE(a.is_deleted, 0) = 0 AND a.status != 'COMPLETED'
-       ORDER BY a.auction_date ASC, a.id DESC`
+       ORDER BY
+         CASE a.status WHEN 'LIVE' THEN 0 WHEN 'PAUSED' THEN 1 ELSE 2 END,
+         a.auction_date ASC,
+         a.id DESC`
     );
 
     res.json(rows);

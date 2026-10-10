@@ -161,26 +161,23 @@ async function calculateMaxBids(pool, auctionId, currentPlayer = null) {
     // Since the team is about to spend its bid on THIS player (consuming
     // that slot), we can safely add back its base price — the team only
     // needs to keep the reserve for the OTHER remaining slots.
-    // This is skipped when currentPlayer is null ("absolute" mode).
+    // If currentPlayer is null ("absolute" mode), we assume they will bid on
+    // a player with the default/minimum base price.
     let currentPlayerAddBack = 0;
+    
+    // Calculate how many slots are remaining overall
+    const remainingSlots = effectivePlayerLimit > 0
+      ? Math.max(0, effectivePlayerLimit - sold.total)
+      : 0;
+
     if (currentPlayer) {
       if (!isCategory || categorySlots.length === 0) {
         // Open auction OR category-wise with no per-category limits:
-        // The current player occupies one general slot.
-        // Add back the smaller of (its actual base price) or (defaultBasePrice)
-        // so the team cannot exceed what it would save by using that slot.
-        const slotBase = Number(currentPlayer.base_price || defaultBasePrice);
-        // Only add back if there's still a slot for this player
-        const remainingSlots = effectivePlayerLimit > 0
-          ? Math.max(0, effectivePlayerLimit - sold.total)
-          : 0;
         if (remainingSlots > 0) {
-          currentPlayerAddBack = slotBase;
+          currentPlayerAddBack = Number(currentPlayer.base_price || defaultBasePrice);
         }
       } else {
         // Category-wise with per-category limits:
-        // Only add back if the current player's category has a slot limit
-        // AND this team still has an open slot in that category.
         const activeCat = categorySlots.find(c => c.category_name === currentPlayer.category);
         if (activeCat) {
           const bought = Number(sold.byCategory[currentPlayer.category] || 0);
@@ -189,7 +186,34 @@ async function calculateMaxBids(pool, auctionId, currentPlayer = null) {
           }
         } else {
           // Player's category has no slot limit — add back its base price directly
-          currentPlayerAddBack = Number(currentPlayer.base_price || defaultBasePrice);
+          if (remainingSlots > 0) {
+            currentPlayerAddBack = Number(currentPlayer.base_price || defaultBasePrice);
+          }
+        }
+      }
+    } else {
+      // Absolute mode: add back the minimum required for ONE slot, because any player they bid on
+      // will consume one of the remaining slots.
+      if (!isCategory || categorySlots.length === 0) {
+        if (remainingSlots > 0) {
+          currentPlayerAddBack = defaultBasePrice;
+        }
+      } else {
+        // In category mode without a specific player, we should ideally add back the smallest
+        // base price among categories where they still have open slots.
+        // For simplicity, we can use the overall defaultBasePrice or the smallest active category base price.
+        let minCatBasePrice = null;
+        for (const cat of categorySlots) {
+          const bought = Number(sold.byCategory[cat.category_name] || 0);
+          if (bought < Number(cat.max_players_per_team)) {
+             const bp = Number(cat.base_price || 0);
+             if (minCatBasePrice === null || bp < minCatBasePrice) minCatBasePrice = bp;
+          }
+        }
+        if (minCatBasePrice !== null) {
+          currentPlayerAddBack = minCatBasePrice;
+        } else if (remainingSlots > 0) {
+          currentPlayerAddBack = defaultBasePrice;
         }
       }
     }

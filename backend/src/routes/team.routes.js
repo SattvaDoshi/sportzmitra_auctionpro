@@ -63,7 +63,7 @@ router.get("/auction/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
     );
 
     const [soldRows] = await pool.query(
-      `SELECT sold_team_id AS team_id, COUNT(*) AS cnt
+      `SELECT sold_team_id AS team_id, COUNT(*) AS cnt, SUM(sold_price) AS spent
        FROM players
        WHERE auction_id = ? AND status = 'SOLD' AND sold_team_id IS NOT NULL
        GROUP BY sold_team_id`,
@@ -71,18 +71,13 @@ router.get("/auction/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
     );
 
     const soldByTeam = {};
-    for (const row of soldRows) soldByTeam[row.team_id] = Number(row.cnt);
+    const spentByTeam = {};
+    for (const row of soldRows) {
+      soldByTeam[row.team_id] = Number(row.cnt);
+      spentByTeam[row.team_id] = Number(row.spent);
+    }
 
     const teams = rows.map((team) => {
-      const totalPurse =
-        Number(
-          team.total_purse ??
-          team.purse ??
-          team.team_purse ??
-          team.auction_purse ??
-          0
-        ) || 0;
-
       const balancePurse =
         Number(
           team.remaining_purse ??
@@ -94,12 +89,15 @@ router.get("/auction/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
           0
         ) || 0;
 
+      const spent = spentByTeam[team.id] || 0;
+      const totalPurse = balancePurse + spent; // Dynamically calculated to match dashboard snapshot
+
       return {
         ...team,
         total_purse: totalPurse,
         balance_purse: balancePurse,
         remaining_purse: balancePurse,
-        used_purse: Math.max(totalPurse - balancePurse, 0),
+        used_purse: spent,
         players_bought: Number(soldByTeam[team.id] || team.players_bought || 0),
       };
     });

@@ -16,7 +16,7 @@ async function up(pool) {
       
       -- 1. State details (with current player and highest bidder team info)
       SELECT s.*, 
-             p.player_name, p.category, p.player_role, p.base_price, p.photo_url, p.age, p.batting_style, p.bowling_style, p.player_info,
+             p.player_name, p.category, p.player_role, p.base_price, p.photo_url, p.age, p.area, p.batting_style, p.bowling_style, p.player_info, p.serial_number,
              t.team_name AS highest_team_name
       FROM auction_state s
       LEFT JOIN players p ON s.current_player_id = p.id

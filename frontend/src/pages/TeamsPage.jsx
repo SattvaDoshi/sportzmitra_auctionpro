@@ -1019,25 +1019,43 @@ export default function TeamsPage() {
                       </div>
                     </div>
 
-                    {/* Purse + Max Bid */}
-                    <div className="mt-4">
-                      <div className="text-2xl font-extrabold tracking-tight text-slate-900">
-                        ₹ {formatAmount(team.remaining_purse ?? team.total_purse)}
-                      </div>
-                      {maxBidVal !== null && (
-                        <div className={`mt-1.5 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-black ${
-                          maxBidVal === 0
-                            ? "bg-red-50 border border-red-200 text-red-600"
-                            : "bg-emerald-50 border border-emerald-200 text-emerald-700"
-                        }`}>
-                          <span className="uppercase tracking-wider text-[10px]">Max Bid</span>
-                          <span>{maxBidVal === 0 ? "LOCKED" : `₹${formatAmount(maxBidVal)}`}</span>
+                    {/* Metrics Grid */}
+                    <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      {/* Purse */}
+                      <div className="min-w-0">
+                        <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">Purse</div>
+                        <div className="whitespace-nowrap text-xs font-black leading-tight text-slate-900">
+                          ₹{formatAmount(team.total_purse)}
                         </div>
-                      )}
+                      </div>
+                      
+                      {/* Spent */}
+                      <div className="min-w-0">
+                        <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">Spent</div>
+                        <div className="whitespace-nowrap text-xs font-black leading-tight text-slate-900">
+                          ₹{formatAmount(team.used_purse)}
+                        </div>
+                      </div>
+                      
+                      {/* Balance */}
+                      <div className="min-w-0">
+                        <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">Balance</div>
+                        <div className="whitespace-nowrap text-xs font-black leading-tight text-emerald-600">
+                          ₹{formatAmount(team.remaining_purse)}
+                        </div>
+                      </div>
+                      
+                      {/* Max Bid */}
+                      <div className="min-w-0">
+                        <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">Max Bid</div>
+                        <div className={`whitespace-nowrap text-xs font-black leading-tight ${maxBidVal === 0 ? "text-red-500" : "text-[#EC008C]"}`}>
+                          {maxBidVal === 0 ? "LOCKED" : `₹${formatAmount(maxBidVal !== null ? maxBidVal : team.remaining_purse)}`}
+                        </div>
+                      </div>
                     </div>
 
                     {/* Players & Limit */}
-                    <div className="mt-1 flex items-center justify-between text-xs font-semibold text-slate-400">
+                    <div className="mt-4 flex items-center justify-between text-xs font-semibold text-slate-400">
                       <span>Players</span>
                       <span className="text-slate-700">
                         {squadCount} / {maxSquad} limit

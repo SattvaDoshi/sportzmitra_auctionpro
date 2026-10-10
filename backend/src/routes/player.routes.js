@@ -460,7 +460,8 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
         const role = normalizeRole(row.Role || row.player_role || row["Player Role"]);
         const basePrice = Number(row["Base Price"] || row.base_price || 0);
         const tshirtSize = clean(row["T-shirt Size"] || row["Tshirt Size"] || row.tshirt_size || row.Size);
-        const age = row.Age || row.age || null;
+        const ageKey = Object.keys(row).find(k => k.trim().toLowerCase() === "age" || k.trim().toLowerCase() === "player age" || k.trim().toLowerCase() === "age(yrs)");
+        const age = ageKey ? row[ageKey] : null;
         const area = clean(row.Area || row.area);
         const previousTeam = clean(row["Previous Team"] || row.previous_team);
         const playerInfo = clean(row["Player Info"] || row["Rich Text Info"] || row.player_info);

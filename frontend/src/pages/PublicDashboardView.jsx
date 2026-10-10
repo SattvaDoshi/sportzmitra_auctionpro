@@ -26,7 +26,13 @@ function money(value) {
 
 /* Age can come under different field names depending on the endpoint */
 function getAge(p) {
-  const a = p?.age ?? p?.player_age;
+  let a = p?.age ?? p?.player_age ?? p?.Age;
+  if (!a && p?.player_info) {
+    try {
+      const info = typeof p.player_info === 'string' ? JSON.parse(p.player_info) : p.player_info;
+      a = info?.age ?? info?.Age ?? info?.player_age;
+    } catch (e) {}
+  }
   return a === undefined || a === null || a === "" ? "-" : a;
 }
 
@@ -566,7 +572,7 @@ function PlayerCard({ p, type, onPhotoClick }) {
             {isSold ? p.sold_team_name || "-" : `\u20B9${money(p.base_price)}`}
           </span>
         </div>
-        {isPending && (
+        {isPending && getAge(p) !== "-" && (
           <div className="flex shrink-0 items-baseline gap-1.5">
             <span className={labelCls}>Age</span>
             <span className="text-[11px] font-bold text-slate-800">{getAge(p)}</span>

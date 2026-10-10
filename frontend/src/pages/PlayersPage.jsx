@@ -479,10 +479,28 @@ export default function PlayersPage() {
 
   const filteredPlayers = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return players.filter((player) => {
+    const filtered = players.filter((player) => {
       const statusMatch = status === "ALL" || player.status === status;
-      const textMatch = !q || [player.player_name, player.player_mobile, player.category, player.player_role, player.area, player.sold_team_name].join(" ").toLowerCase().includes(q);
+      const textMatch = !q || [player.serial_number, player.player_name, player.player_mobile, player.category, player.player_role, player.area, player.sold_team_name].join(" ").toLowerCase().includes(q);
       return statusMatch && textMatch;
+    });
+
+    if (!q) return filtered;
+
+    // Sort to prioritize serial number matches
+    return filtered.sort((a, b) => {
+      const aSerial = String(a.serial_number || "").toLowerCase();
+      const bSerial = String(b.serial_number || "").toLowerCase();
+      
+      const aExact = aSerial === q ? 1 : 0;
+      const bExact = bSerial === q ? 1 : 0;
+      if (aExact !== bExact) return bExact - aExact;
+
+      const aStart = aSerial.startsWith(q) ? 1 : 0;
+      const bStart = bSerial.startsWith(q) ? 1 : 0;
+      if (aStart !== bStart) return bStart - aStart;
+
+      return 0;
     });
   }, [players, search, status]);
 

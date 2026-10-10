@@ -44,7 +44,13 @@ const AREA_KEY_RE = /(^|_)(area|location|city|locality|place|town|village|addres
 const SKIP_KEY_RE = /team|logo|url|photo|image|link/i;
 
 function getAge(src) {
-  const raw = src?.age ?? src?.player_age ?? src?.years ?? src?.player?.age ?? "";
+  let raw = src?.age ?? src?.player_age ?? src?.years ?? src?.player?.age ?? src?.Age ?? "";
+  if (!raw && src?.player_info) {
+    try {
+      const info = typeof src.player_info === 'string' ? JSON.parse(src.player_info) : src.player_info;
+      raw = info?.age ?? info?.Age ?? info?.player_age ?? "";
+    } catch (e) {}
+  }
   const text = String(raw || findInStatsField(src, AGE_LABEL_RE)).trim();
   if (!text) return "";
   return /^\d+$/.test(text) ? `${text} Years` : text;
@@ -76,6 +82,7 @@ function buildPlayer(src) {
   if (!src) return null;
   return {
     id: src.current_player_id ?? src.id,
+    serial_number: src.serial_number,
     player_name: src.player_name || "",
     category: src.category || "",
     player_role: src.player_role || src.batting_style || "",
