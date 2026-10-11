@@ -198,6 +198,11 @@ export default function AuctionHero({ auction, state, viewerCount = 0 }) {
   const basePrice = Number(state?.base_price || 0);
   const currentBid = Number(state?.current_bid || basePrice || 0);
   const hasPlayer = !!state?.player_name;
+  const serialNo = state?.serial_number ?? state?.serial_no ?? state?.serial;
+  const hasSerial = serialNo !== undefined && serialNo !== null && String(serialNo).trim() !== "";
+  const playerName = state?.player_name || "";
+  const alreadyHasSerial = hasSerial && playerName.toLowerCase().startsWith(String(serialNo).toLowerCase().trim());
+  const showSerial = hasSerial && !alreadyHasSerial;
   const jersey = state?.jersey_number ?? state?.player_number;
   const role = state?.player_role || state?.batting_style || "";
   const roundNo = state?.round_number ?? state?.round_no ?? state?.round;
@@ -352,7 +357,14 @@ export default function AuctionHero({ auction, state, viewerCount = 0 }) {
               {/* Name + role and category side by side */}
               <div className="min-w-0">
                 <h2 className="break-words text-[17px] font-black uppercase leading-tight text-white">
-                  {hasPlayer ? state.player_name : "Waiting for player..."}
+                  {hasPlayer ? (
+                    <>
+                      {showSerial ? <span className="mr-1.5 text-[#ff7cc6]">{serialNo} -</span> : null}
+                      {playerName}
+                    </>
+                  ) : (
+                    "Waiting for player..."
+                  )}
                   {jersey ? <span className="ml-1.5 text-[#ff1f9f]">{jersey}</span> : null}
                 </h2>
                 <RoleCategory role={role} category={category} />
@@ -439,7 +451,14 @@ export default function AuctionHero({ auction, state, viewerCount = 0 }) {
 
             <div className="min-w-0 flex-1">
               <h2 className="aa-display break-words text-[clamp(26px,4vw,56px)] uppercase leading-none text-white">
-                {hasPlayer ? state.player_name : "Waiting for player..."}
+                {hasPlayer ? (
+                  <>
+                    {showSerial ? <span className="mr-2 text-[#ff7cc6]">{serialNo} -</span> : null}
+                    {playerName}
+                  </>
+                ) : (
+                  "Waiting for player..."
+                )}
                 {jersey ? <span className="ml-2 text-[#ff1f9f]">{jersey}</span> : null}
               </h2>
 
