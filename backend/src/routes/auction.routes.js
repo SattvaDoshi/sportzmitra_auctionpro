@@ -621,11 +621,11 @@ router.get(
       // All players with sold team info
       const [players] = await pool.query(
         `SELECT
-           p.id, p.player_name, p.category, p.player_role,
-           p.base_price, p.status, p.sold_price, p.sold_at,
-           p.photo_url, p.unsold_count, p.auction_round,
+           p.*,
+           COALESCE(p.photo_url, op.photo_url) AS photo_url,
            t.team_name AS sold_team_name, t.short_name AS sold_team_short
          FROM players p
+         LEFT JOIN org_players op ON op.id = p.org_player_id
          LEFT JOIN teams t ON t.id = p.sold_team_id
          WHERE p.auction_id = ? AND COALESCE(p.is_deleted, 0) = 0
          ORDER BY p.sold_at DESC, p.player_name ASC`,
