@@ -1302,12 +1302,9 @@ function exportToExcel(players, auctionName, teams = []) {
       "Email": p.player_email || "-",
       "Age": p.age ?? "-",
       "Area": p.area || "-",
-      "Previous Team": p.previous_team || "-",
       "Base Price (₹)": Number(p.base_price || 0),
       "Sold Price (₹)": isSold ? Number(p.sold_price || 0) : 0,
       "Status": p.status || "-",
-      "Batting Style": p.batting_style || "-",
-      "Bowling Style": p.bowling_style || "-",
       "Player Info": cleanPlayerInfo(p.player_info) || "-",
       "Photo URL": p.photo_url || "-",
     };
@@ -1329,12 +1326,9 @@ function exportToExcel(players, auctionName, teams = []) {
     { wch: 26 }, // Email
     { wch: 8 },  // Age
     { wch: 18 }, // Area
-    { wch: 20 }, // Previous Team
     { wch: 15 }, // Base Price (₹)
     { wch: 15 }, // Sold Price (₹)
     { wch: 14 }, // Status
-    { wch: 15 }, // Batting Style
-    { wch: 15 }, // Bowling Style
     { wch: 32 }, // Player Info
     { wch: 36 }, // Photo URL
   ];
