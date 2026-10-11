@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import api from "../api/api";
 import { getImageUrl } from "../utils/imageUrl";
 import socket from "../utils/socket";
-import { Gavel, Users, CalendarDays, MapPin } from "lucide-react";
+import { Gavel, Users, CalendarDays, MapPin, X } from "lucide-react";
 
 /**
  * PublicLiveView.jsx  (blue theme)
@@ -38,9 +38,14 @@ function findInStatsField(src, labelRe) {
 }
 
 const AGE_LABEL_RE = /^(age|player age)$/i;
-const AREA_LABEL_RE = /^(area|location|city|place|address|locality|town|village|district|region)$/i;
-/* Any flat key that looks like an area/location field (team / url / logo keys are skipped) */
-const AREA_KEY_RE = /(^|_)(area|location|city|locality|place|town|village|address|district|region)(_|$)/i;
+/* Matches labels like "Area", "Player Area", "Area / Locality", "Area:" (word match, not exact match) */
+const AREA_LABEL_RE =
+  /(^|[^a-z])(area|location|city|place|address|locality|town|village|district|region)([^a-z]|$)/i;
+/* Any key that looks like an area/location field. Tested on a snake_case version of the key,
+   so "playerArea", "areaName", "player-area" and "player_area" all match (team / url / logo keys are skipped) */
+const AREA_KEY_RE =
+  /(^|[_\s-])(area|location|city|locality|place|town|village|address|district|region)([_\s-]|$)/i;
+const toSnake = (key) => String(key).replace(/([a-z0-9])([A-Z])/g, "$1_$2");
 const SKIP_KEY_RE = /team|logo|url|photo|image|link/i;
 
 function getAge(src) {
