@@ -440,18 +440,19 @@ function Fireworks() {
 /* Auction logo (bigger). Shows the uploaded logo, or a placeholder. */
 function AuctionLogoBox({ url }) {
   const [failed, setFailed] = useState(false);
+  const src = getImageUrl(url);
 
   useEffect(() => {
     setFailed(false);
-  }, [url]);
+  }, [src]);
 
-  const showImg = url && !failed;
+  const showImg = src && !failed;
 
   return (
     <div className="flex h-16 min-w-[64px] max-w-[150px] shrink-0 items-center justify-center sm:h-20 sm:max-w-[220px] lg:h-28 lg:max-w-[300px]">
       {showImg ? (
         <img
-          src={url}
+          src={src}
           alt="Auction Logo"
           draggable="false"
           onError={() => setFailed(true)}
@@ -535,14 +536,15 @@ function getTeamLogo(team, state) {
 
 function TeamLogoCircle({ logoUrl, name, sizeClass = "h-16 w-16 lg:h-20 lg:w-20" }) {
   const [failed, setFailed] = useState(false);
+  const src = getImageUrl(logoUrl);
 
   useEffect(() => {
     setFailed(false);
-  }, [logoUrl]);
+  }, [src]);
 
-  return logoUrl && !failed ? (
+  return src && !failed ? (
     <img
-      src={logoUrl}
+      src={src}
       alt={name || "Team"}
       draggable="false"
       onError={() => setFailed(true)}
@@ -1063,12 +1065,12 @@ function CelebrationOverlay({ celebration }) {
 
           <div className="flex flex-col items-center md:items-start">
             <PlayerName
-              name={p.player_name}
-              serial={currentPlayer?.serial_number}
-              jersey={p.jersey_number}
+              name={p?.player_name}
+              serial={p?.serial_number}
+              jersey={p?.jersey_number}
               className="text-[clamp(34px,5vw,80px)]"
             />
-            <RoleLine role={p.player_role} category={p.category} roleClass="text-xl sm:text-3xl" />
+            <RoleLine role={p?.player_role} category={p?.category} roleClass="text-xl sm:text-3xl" />
           </div>
 
           <div className="grid w-full grid-cols-2 gap-2 sm:gap-3">
