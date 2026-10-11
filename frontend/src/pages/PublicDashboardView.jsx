@@ -143,13 +143,13 @@ export default function PublicDashboardView() {
     const q = search.trim().toLowerCase();
     return rows.filter((row) => {
       const catOk = category === "ALL" || row.category === category;
-      const qOk =
-        !q ||
-        `${row.player_name || ""} ${row.player_role || ""} ${
-          row.sold_team_name || ""
-        } ${row.team_name || ""}`
-          .toLowerCase()
-          .includes(q);
+ const qOk =
+  !q ||
+  `${row.serial_number || ""} ${row.player_name || ""} ${row.player_role || ""} ${
+    row.sold_team_name || ""
+  } ${row.team_name || ""}`
+    .toLowerCase()
+    .includes(q);
       return catOk && qOk;
     });
   }

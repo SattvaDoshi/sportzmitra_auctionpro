@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import api from "../api/api";
 import { getImageUrl } from "../utils/imageUrl";
 import socket from "../utils/socket";
-import { Gavel, Users, CalendarDays, MapPin, X } from "lucide-react";
+import { Gavel, Users, CalendarDays, MapPin } from "lucide-react";
 
 /**
  * PublicLiveView.jsx  (blue theme)
@@ -38,14 +38,9 @@ function findInStatsField(src, labelRe) {
 }
 
 const AGE_LABEL_RE = /^(age|player age)$/i;
-/* Matches labels like "Area", "Player Area", "Area / Locality", "Area:" (word match, not exact match) */
-const AREA_LABEL_RE =
-  /(^|[^a-z])(area|location|city|place|address|locality|town|village|district|region)([^a-z]|$)/i;
-/* Any key that looks like an area/location field. Tested on a snake_case version of the key,
-   so "playerArea", "areaName", "player-area" and "player_area" all match (team / url / logo keys are skipped) */
-const AREA_KEY_RE =
-  /(^|[_\s-])(area|location|city|locality|place|town|village|address|district|region)([_\s-]|$)/i;
-const toSnake = (key) => String(key).replace(/([a-z0-9])([A-Z])/g, "$1_$2");
+const AREA_LABEL_RE = /^(area|location|city|place|address|locality|town|village|district|region)$/i;
+/* Any flat key that looks like an area/location field (team / url / logo keys are skipped) */
+const AREA_KEY_RE = /(^|_)(area|location|city|locality|place|town|village|address|district|region)(_|$)/i;
 const SKIP_KEY_RE = /team|logo|url|photo|image|link/i;
 
 function getAge(src) {
@@ -91,7 +86,7 @@ function getArea(src) {
     if (typeof node === "object") {
       /* a. keys that look like an area field at this level */
       for (const [k, v] of Object.entries(node)) {
-        if (SKIP_KEY_RE.test(k) || !AREA_KEY_RE.test(toSnake(k))) continue;
+        if (SKIP_KEY_RE.test(k) || !AREA_KEY_RE.test(k)) continue;
         if (isText(v)) return String(v).trim();
       }
       /* b. go deeper */
@@ -575,15 +570,18 @@ function LeadingTeamBadge({ name, logoUrl }) {
 }
 
 /* Player name: first word white, the rest blue. */
-function PlayerName({ name, jersey, className = "", as: Tag = "div" }) {
+/* Player name: serial prefix, then first word white, the rest blue. */
+function PlayerName({ name, serial, jersey, className = "", as: Tag = "div" }) {
   const words = String(name || "Waiting for player...").split(" ").filter(Boolean);
   const first = words[0];
   const rest = words.slice(1).join(" ");
+  const hasSerial = serial !== undefined && serial !== null && serial !== "";
 
   return (
     <Tag
       className={`aa-display max-w-full break-words uppercase leading-[0.95] tracking-tight text-white ${className}`}
     >
+      {hasSerial ? <span className="mr-[0.25em] text-sky-400">{serial} -</span> : null}
       {first}
       {rest ? <span className={`ml-[0.25em] ${BLUE_TEXT}`}>{rest}</span> : null}
       {jersey ? <span className="ml-3 text-sky-400">{jersey}</span> : null}
@@ -691,12 +689,6 @@ export default function PublicLiveView() {
     clearTimeout(celebrationTimer.current);
     setCelebration(data);
     celebrationTimer.current = setTimeout(() => setCelebration(null), durationMs);
-  }, []);
-
-  /* Manual close (cross button / Esc): hides the popup and cancels its auto-close timer */
-  const dismissCelebration = useCallback(() => {
-    clearTimeout(celebrationTimer.current);
-    setCelebration(null);
   }, []);
 
   useEffect(() => () => clearTimeout(celebrationTimer.current), []);
@@ -878,7 +870,7 @@ export default function PublicLiveView() {
     <div className="relative flex min-h-[100svh] w-full flex-col overflow-x-hidden bg-[#030b1f] font-sans text-white">
       <DisplayFontLoader />
 
-      <CelebrationOverlay celebration={celebration} onClose={dismissCelebration} />
+      <CelebrationOverlay celebration={celebration} />
 
       <section className="relative isolate flex min-h-[100svh] w-full flex-1 flex-col overflow-hidden bg-[#030b1f]">
         {/* Background: stadium image forced into blue + blue scrims */}
@@ -948,6 +940,7 @@ export default function PublicLiveView() {
                   <PlayerName
                     as="h2"
                     name={currentPlayer?.player_name}
+                    serial={currentPlayer?.serial_number}
                     jersey={currentPlayer?.jersey_number}
                     className="text-[clamp(40px,5.4vw,96px)]"
                   />
@@ -1032,17 +1025,7 @@ export default function PublicLiveView() {
 /* ---------------------------------------------------------------------------
    SOLD / UNSOLD CELEBRATION (full screen, big card + fireworks)
 --------------------------------------------------------------------------- */
-function CelebrationOverlay({ celebration, onClose }) {
-  /* Esc key closes the popup */
-  useEffect(() => {
-    if (!celebration) return undefined;
-    const onKey = (e) => {
-      if (e.key === "Escape") onClose?.();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [celebration, onClose]);
-
+function CelebrationOverlay({ celebration }) {
   if (!celebration) return null;
 
   const isSold = celebration.type === "SOLD";
@@ -1059,16 +1042,6 @@ function CelebrationOverlay({ celebration, onClose }) {
             : "border-rose-400/60 shadow-[0_0_80px_rgba(244,63,94,0.3)]"
         }`}
       >
-        {/* Close (cross) button */}
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="absolute right-3 top-3 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-sky-400/60 bg-[#041533]/90 text-white shadow-[0_0_16px_rgba(56,189,248,0.4)] transition-colors hover:border-sky-300 hover:bg-sky-500/30 hover:text-sky-200 sm:h-11 sm:w-11"
-        >
-          <X className="h-5 w-5 sm:h-6 sm:w-6" />
-        </button>
-
         {/* Photo */}
         <div className="p-3 md:p-5">
           <PlayerPhoto
@@ -1091,6 +1064,7 @@ function CelebrationOverlay({ celebration, onClose }) {
           <div className="flex flex-col items-center md:items-start">
             <PlayerName
               name={p.player_name}
+              serial={currentPlayer?.serial_number}
               jersey={p.jersey_number}
               className="text-[clamp(34px,5vw,80px)]"
             />
