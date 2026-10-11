@@ -91,7 +91,7 @@ function getArea(src) {
     if (typeof node === "object") {
       /* a. keys that look like an area field at this level */
       for (const [k, v] of Object.entries(node)) {
-        if (SKIP_KEY_RE.test(k) || !AREA_KEY_RE.test(k)) continue;
+        if (SKIP_KEY_RE.test(k) || !AREA_KEY_RE.test(toSnake(k))) continue;
         if (isText(v)) return String(v).trim();
       }
       /* b. go deeper */
@@ -693,6 +693,12 @@ export default function PublicLiveView() {
     celebrationTimer.current = setTimeout(() => setCelebration(null), durationMs);
   }, []);
 
+  /* Manual close (cross button / Esc): hides the popup and cancels its auto-close timer */
+  const dismissCelebration = useCallback(() => {
+    clearTimeout(celebrationTimer.current);
+    setCelebration(null);
+  }, []);
+
   useEffect(() => () => clearTimeout(celebrationTimer.current), []);
 
   const currentPlayer = useMemo(() => buildPlayer(state), [state]);
@@ -872,7 +878,7 @@ export default function PublicLiveView() {
     <div className="relative flex min-h-[100svh] w-full flex-col overflow-x-hidden bg-[#030b1f] font-sans text-white">
       <DisplayFontLoader />
 
-      <CelebrationOverlay celebration={celebration} />
+      <CelebrationOverlay celebration={celebration} onClose={dismissCelebration} />
 
       <section className="relative isolate flex min-h-[100svh] w-full flex-1 flex-col overflow-hidden bg-[#030b1f]">
         {/* Background: stadium image forced into blue + blue scrims */}
@@ -1026,7 +1032,17 @@ export default function PublicLiveView() {
 /* ---------------------------------------------------------------------------
    SOLD / UNSOLD CELEBRATION (full screen, big card + fireworks)
 --------------------------------------------------------------------------- */
-function CelebrationOverlay({ celebration }) {
+function CelebrationOverlay({ celebration, onClose }) {
+  /* Esc key closes the popup */
+  useEffect(() => {
+    if (!celebration) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose?.();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [celebration, onClose]);
+
   if (!celebration) return null;
 
   const isSold = celebration.type === "SOLD";
@@ -1043,6 +1059,16 @@ function CelebrationOverlay({ celebration }) {
             : "border-rose-400/60 shadow-[0_0_80px_rgba(244,63,94,0.3)]"
         }`}
       >
+        {/* Close (cross) button */}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="absolute right-3 top-3 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-sky-400/60 bg-[#041533]/90 text-white shadow-[0_0_16px_rgba(56,189,248,0.4)] transition-colors hover:border-sky-300 hover:bg-sky-500/30 hover:text-sky-200 sm:h-11 sm:w-11"
+        >
+          <X className="h-5 w-5 sm:h-6 sm:w-6" />
+        </button>
+
         {/* Photo */}
         <div className="p-3 md:p-5">
           <PlayerPhoto
