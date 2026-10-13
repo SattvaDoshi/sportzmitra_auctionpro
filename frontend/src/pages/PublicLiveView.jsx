@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import api from "../api/api";
 import { getImageUrl } from "../utils/imageUrl";
 import socket from "../utils/socket";
-import { Gavel, Users, CalendarDays, MapPin } from "lucide-react";
+import { Gavel, Users, CalendarDays, MapPin, X } from "lucide-react";
 
 /**
  * PublicLiveView.jsx  (blue theme)
@@ -687,6 +687,11 @@ export default function PublicLiveView() {
   stateRef.current = state;
   const celebrationTimer = useRef(null);
 
+  const closeCelebration = useCallback(() => {
+    clearTimeout(celebrationTimer.current);
+    setCelebration(null);
+  }, []);
+
   const showCelebration = useCallback((data, durationMs) => {
     clearTimeout(celebrationTimer.current);
     setCelebration(data);
@@ -694,6 +699,15 @@ export default function PublicLiveView() {
   }, []);
 
   useEffect(() => () => clearTimeout(celebrationTimer.current), []);
+
+  useEffect(() => {
+    if (!celebration) return;
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") closeCelebration();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [celebration, closeCelebration]);
 
   const currentPlayer = useMemo(() => buildPlayer(state), [state]);
 
@@ -719,12 +733,29 @@ export default function PublicLiveView() {
       setSnapshot(response.data);
       setAuction(response.data.auction || null);
       setState(response.data.state || null);
+
+      if (response.data?.state?.state === "SOLD" && response.data?.state?.current_player_id) {
+        const soldPlayer = buildPlayer(response.data.state);
+        showCelebration(
+          {
+            type: "SOLD",
+            player: soldPlayer,
+            teamName:
+              response.data.state?.highest_team_name ||
+              response.data.state?.leading_team_name ||
+              "",
+            teamLogo: getTeamLogo(null, response.data.state),
+            amount: response.data.state?.current_bid || 0,
+          },
+          7500
+        );
+      }
     } catch (error) {
       console.error("Public auction load error:", error);
     } finally {
       setLoading(false);
     }
-  }, [publicSlug]);
+  }, [publicSlug, showCelebration]);
 
   useEffect(() => {
     loadAuction();
@@ -734,20 +765,42 @@ export default function PublicLiveView() {
     if (!auction?.id) return undefined;
 
     const joinRoom = () => {
-      socket.emit("joinPublicAuction", { auctionId: auction.id, publicSlug });
+      socket.emit("joinPublicAuction", { auctionId: Number(auction.id), publicSlug });
+      socket.emit("joinAuction", Number(auction.id));
     };
 
     joinRoom(); // Initial join
     socket.on("connect", joinRoom); // Re-join on reconnect
 
-    const isThisAuction = (payload) =>
-      payload?.auction?.id === auction.id || payload?.auctionId === auction.id;
+    const isThisAuction = (payload) => {
+      const pId = payload?.auction?.id || payload?.auctionId || payload?.auction_id;
+      const myId = auction?.id;
+      if (!pId || !myId) return true;
+      return String(pId) === String(myId);
+    };
 
     const handleSnapshotUpdated = (payload) => {
-      if (isThisAuction(payload)) {
-        setSnapshot(payload);
-        if (payload.auction) setAuction(payload.auction);
-        if (payload.state) setState(payload.state);
+      if (!isThisAuction(payload)) return;
+      setSnapshot(payload);
+      if (payload.auction) setAuction(payload.auction);
+      if (payload.state) setState(payload.state);
+
+      if (payload.state?.state === "SOLD" && payload.state?.current_player_id) {
+        const soldPlayer = buildPlayer(payload.state);
+        showCelebration(
+          {
+            type: "SOLD",
+            player: soldPlayer,
+            teamName:
+              payload?.state?.highest_team_name ||
+              payload?.state?.leading_team_name ||
+              payload?.team_name ||
+              "",
+            teamLogo: getTeamLogo(null, payload.state),
+            amount: payload?.state?.current_bid || 0,
+          },
+          7500
+        );
       }
     };
 
@@ -872,7 +925,7 @@ export default function PublicLiveView() {
     <div className="relative flex min-h-[100svh] w-full flex-col overflow-x-hidden bg-[#030b1f] font-sans text-white">
       <DisplayFontLoader />
 
-      <CelebrationOverlay celebration={celebration} />
+      <CelebrationOverlay celebration={celebration} onClose={closeCelebration} />
 
       <section className="relative isolate flex min-h-[100svh] w-full flex-1 flex-col overflow-hidden bg-[#030b1f]">
         {/* Background: stadium image forced into blue + blue scrims */}
@@ -1027,14 +1080,19 @@ export default function PublicLiveView() {
 /* ---------------------------------------------------------------------------
    SOLD / UNSOLD CELEBRATION (full screen, big card + fireworks)
 --------------------------------------------------------------------------- */
-function CelebrationOverlay({ celebration }) {
+function CelebrationOverlay({ celebration, onClose }) {
   if (!celebration) return null;
 
   const isSold = celebration.type === "SOLD";
   const p = celebration.player || {};
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#020a1f]/90 p-3 backdrop-blur-md sm:p-6 md:items-center">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget && onClose) onClose();
+      }}
+      className="fixed inset-0 z-[9999] flex items-start justify-center overflow-y-auto bg-[#020a1f]/90 p-3 backdrop-blur-md sm:p-6 md:items-center"
+    >
       {isSold && <Fireworks />}
 
       <div
@@ -1044,6 +1102,17 @@ function CelebrationOverlay({ celebration }) {
             : "border-rose-400/60 shadow-[0_0_80px_rgba(244,63,94,0.3)]"
         }`}
       >
+        {/* Top-right cross close button */}
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close popup"
+            className="absolute right-3 top-3 z-30 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-white/25 bg-black/60 text-white/85 shadow-2xl backdrop-blur-md transition-all hover:scale-110 hover:border-white/70 hover:bg-black/90 hover:text-white active:scale-95 sm:right-5 sm:top-5 sm:h-12 sm:w-12"
+          >
+            <X className="h-5 w-5 sm:h-6 sm:w-6" />
+          </button>
+        )}
         {/* Photo */}
         <div className="p-3 md:p-5">
           <PlayerPhoto

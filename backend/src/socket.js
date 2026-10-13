@@ -97,6 +97,7 @@ function emitAuctionUpdate(auctionId, eventName, data) {
 function emitAuctionSnapshot(auctionId, snapshot, eventName = "auctionSnapshotUpdated") {
   const payload = {
     ...snapshot,
+    auctionId: Number(auctionId),
     viewerCount: getViewerCount(auctionId),
   };
   emitAuctionUpdate(auctionId, eventName, payload);

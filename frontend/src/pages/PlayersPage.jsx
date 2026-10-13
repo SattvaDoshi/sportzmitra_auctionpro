@@ -818,6 +818,8 @@ export default function PlayersPage() {
                 onClose={() => { setShowForm(false); setEditingPlayer(null); setForm(emptyPlayer); }}
                 onPhotoUpload={uploadPhoto}
                 uploadingPhoto={uploadingPhoto}
+                editingPlayer={editingPlayer}
+                onOpenCorrection={openCorrection}
               />
             </ModalOverlay>
           )}
@@ -1074,7 +1076,7 @@ function InfoField({ label, value }) {
   );
 }
 
-function PlayerForm({ title, form, setForm, onSubmit, onClose, onPhotoUpload, uploadingPhoto }) {
+function PlayerForm({ title, form, setForm, onSubmit, onClose, onPhotoUpload, uploadingPhoto, editingPlayer, onOpenCorrection }) {
   function set(key, value) { setForm({ ...form, [key]: value }); }
   return (
     <form onSubmit={onSubmit} className="max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
@@ -1087,6 +1089,31 @@ function PlayerForm({ title, form, setForm, onSubmit, onClose, onPhotoUpload, up
           <X size={18} />
         </button>
       </div>
+
+      {editingPlayer && editingPlayer.status === "SOLD" && (
+        <div className="mb-6 flex flex-col gap-2 rounded-xl border border-pink-200 bg-pink-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-xs text-pink-800">
+            <span className="font-bold">Player is SOLD</span> to{" "}
+            <span className="font-semibold">{editingPlayer.sold_team_name || "a team"}</span> for{" "}
+            <span className="font-semibold">₹{money(editingPlayer.sold_price)}</span>.
+            <div className="mt-0.5 text-pink-700/80">
+              To move this player to another team or change sold status/price, use the Correction feature.
+            </div>
+          </div>
+          {onOpenCorrection && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenCorrection(editingPlayer);
+              }}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-pink-300 bg-white px-3 py-1.5 text-xs font-bold text-pink-700 shadow-sm transition hover:bg-pink-100"
+            >
+              <Wrench size={14} /> Change Team / Correction
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="mb-6 grid gap-4 md:grid-cols-[140px_1fr]">
         <div className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-slate-50 p-3 text-center">

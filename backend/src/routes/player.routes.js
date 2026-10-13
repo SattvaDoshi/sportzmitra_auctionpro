@@ -8,6 +8,8 @@ const { authMiddleware, requireRole } = require("../middleware/authMiddleware");
 const { userHasAuctionAccess } = require("../middleware/accessMiddleware");
 const { sendError } = require("../utils/errors");
 const { processUploadedPlayerPhoto, processPlayerPhotoUrl } = require("../utils/playerPhotoProcessor");
+const { emitAuctionSnapshot } = require("../socket");
+const cache = require("../utils/snapshotCache");
 
 const router = express.Router();
 const upload = multer({ dest: "src/uploads/" });
@@ -658,8 +660,17 @@ router.patch("/:playerId/correction", authMiddleware, requireRole("AUCTION_ADMIN
     const newPrice = Number(sold_price || 0);
     const newTeamId = sold_team_id ? Number(sold_team_id) : null;
 
-    if (player.status === "SOLD" && player.sold_team_id && Number(player.sold_price || 0) > 0) {
-      await conn.query(`UPDATE teams SET remaining_purse = remaining_purse + ? WHERE id = ?`, [Number(player.sold_price || 0), player.sold_team_id]);
+    const oldTeamId = player.sold_team_id ? Number(player.sold_team_id) : null;
+    const oldPrice = Number(player.sold_price || 0);
+
+    if (player.status === "SOLD" && oldTeamId && oldPrice > 0) {
+      await conn.query(
+        `UPDATE teams 
+         SET remaining_purse = remaining_purse + ?,
+             balance_purse = COALESCE(balance_purse, remaining_purse) + ?
+         WHERE id = ?`,
+        [oldPrice, oldPrice, oldTeamId]
+      );
     }
 
     let soldAtSql = "NULL";
@@ -672,13 +683,19 @@ router.patch("/:playerId/correction", authMiddleware, requireRole("AUCTION_ADMIN
       if (newPrice <= 0) throw new Error("sold_price must be greater than zero when status is SOLD");
 
       const [[team]] = await conn.query(
-        `SELECT id, remaining_purse FROM teams WHERE id = ? AND auction_id = ? FOR UPDATE`,
+        `SELECT id, remaining_purse, balance_purse FROM teams WHERE id = ? AND auction_id = ? FOR UPDATE`,
         [newTeamId, player.auction_id]
       );
       if (!team) throw new Error("Selected team not found in this auction");
       if (Number(team.remaining_purse || 0) < newPrice) throw new Error("Selected team does not have enough remaining purse");
 
-      await conn.query(`UPDATE teams SET remaining_purse = remaining_purse - ? WHERE id = ?`, [newPrice, newTeamId]);
+      await conn.query(
+        `UPDATE teams 
+         SET remaining_purse = remaining_purse - ?,
+             balance_purse = COALESCE(balance_purse, remaining_purse) - ?
+         WHERE id = ?`,
+        [newPrice, newPrice, newTeamId]
+      );
       soldAtSql = "COALESCE(sold_at, NOW())";
     } else if (newStatus === "UNSOLD") {
       lastUnsoldAtSql = "NOW()";
@@ -693,6 +710,7 @@ router.patch("/:playerId/correction", authMiddleware, requireRole("AUCTION_ADMIN
        SET status = ?,
            sold_team_id = ?,
            sold_price = ?,
+           sold_amount = ?,
            sold_at = ${soldAtSql},
            auction_round = ?,
            unsold_count = COALESCE(unsold_count, 0) + ?,
@@ -707,6 +725,7 @@ router.patch("/:playerId/correction", authMiddleware, requireRole("AUCTION_ADMIN
         newStatus,
         newStatus === "SOLD" ? newTeamId : null,
         newStatus === "SOLD" ? newPrice : 0,
+        newStatus === "SOLD" ? newPrice : 0,
         newRound,
         unsoldIncrement,
         clean(category),
@@ -716,6 +735,36 @@ router.patch("/:playerId/correction", authMiddleware, requireRole("AUCTION_ADMIN
         playerId,
       ]
     );
+
+    // Keep auction_state in sync if this player is currently active in state
+    const [[currentState]] = await conn.query(
+      `SELECT current_player_id, state FROM auction_state WHERE auction_id = ?`,
+      [player.auction_id]
+    );
+    if (currentState && Number(currentState.current_player_id) === playerId) {
+      if (newStatus === "SOLD") {
+        await conn.query(
+          `UPDATE auction_state 
+           SET highest_team_id = ?, current_bid = ?, state = 'SOLD', updated_at = NOW() 
+           WHERE auction_id = ?`,
+          [newTeamId, newPrice, player.auction_id]
+        );
+      } else if (newStatus === "UNSOLD" || newStatus === "FINAL_UNSOLD") {
+        await conn.query(
+          `UPDATE auction_state 
+           SET highest_team_id = NULL, state = ?, updated_at = NOW() 
+           WHERE auction_id = ?`,
+          [newStatus, player.auction_id]
+        );
+      } else {
+        await conn.query(
+          `UPDATE auction_state 
+           SET highest_team_id = NULL, current_bid = ?, state = 'PLAYER_ACTIVE', updated_at = NOW() 
+           WHERE auction_id = ?`,
+          [player.base_price || 0, player.auction_id]
+        );
+      }
+    }
 
     const [[updated]] = await conn.query(`SELECT * FROM players WHERE id = ?`, [playerId]);
 
@@ -761,6 +810,18 @@ router.patch("/:playerId/correction", authMiddleware, requireRole("AUCTION_ADMIN
     );
 
     await conn.commit();
+
+    cache.invalidate(player.auction_id);
+    try {
+      const liveRoutes = require("./live.routes");
+      if (liveRoutes.loadSnapshot) {
+        const snapshot = await liveRoutes.loadSnapshot(player.auction_id);
+        emitAuctionSnapshot(player.auction_id, snapshot, "auctionSnapshotUpdated");
+      }
+    } catch (e) {
+      console.error("Failed to emit auction snapshot after player correction", e);
+    }
+
     res.json({ message: "Player correction saved", player: updated });
   } catch (error) {
     await conn.rollback();
