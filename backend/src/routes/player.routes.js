@@ -1,4 +1,4 @@
-const express = require("express");
+﻿const express = require("express");
 const multer = require("multer");
 const xlsx = require("xlsx");
 const path = require("path");
@@ -195,6 +195,41 @@ async function upsertOrgPlayer(conn, organizationId, data) {
   return created;
 }
 
+
+// ---------------------------------------------------------------------------
+// Background photo processing - called via setImmediate after bulk upload response.
+// Downloads + face-crops photos without blocking the HTTP response.
+// ---------------------------------------------------------------------------
+async function processPhotoJobsInBackground(jobs) {
+  console.log("[photoBackground] Processing photos for " + jobs.length + " player(s) in background...");
+  for (const job of jobs) {
+    try {
+      const processed = await processPlayerPhotoUrl(job.req, job.rawPhotoUrl);
+      const bgConn = await pool.getConnection();
+      try {
+        await bgConn.query(
+          `UPDATE org_players
+           SET photo_url = ?, original_photo_url = ?, photo_source = 'EXCEL_URL_PROCESSED',
+               photo_processing_status = ?, photo_processing_mode = ?, photo_updated_at = NOW(),
+               updated_at = NOW()
+           WHERE id = ?`,
+          [processed.photo_url, processed.original_photo_url,
+           processed.photo_processing_status, processed.photo_processing_mode,
+           job.orgPlayerId]
+        );
+        await bgConn.query(
+          `UPDATE players SET photo_url = ? WHERE id = ?`,
+          [processed.photo_url, job.playerId]
+        );
+      } finally {
+        bgConn.release();
+      }
+    } catch (err) {
+      console.warn("[photoBackground] Photo failed for player " + job.playerId + ":", err.message);
+    }
+  }
+  console.log("[photoBackground] Done.");
+}
 router.post(
   "/upload-photo",
   authMiddleware,
@@ -449,6 +484,7 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
     const importBatchId = batchResult.insertId;
     let inserted = 0;
     let failed = 0;
+    const pendingPhotoJobs = []; // photo jobs to process in background after responding
 
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index];
@@ -469,23 +505,13 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
         const playerInfo = clean(row["Player Info"] || row["Rich Text Info"] || row.player_info);
         const serialNumber = clean(row["Serial Number"] || row["Serial No"] || row.serial_number || row.id || row.Id);
         const rawPhotoUrl = clean(row["Photo URL"] || row["Photo"] || row.photo_url || row.photo);
-        let photoUrl = rawPhotoUrl;
-        let originalPhotoUrl = null;
-        let photoProcessingStatus = rawPhotoUrl ? "URL_NOT_PROCESSED" : null;
-        let photoProcessingMode = null;
-
-        if (rawPhotoUrl && /^https?:\/\//i.test(rawPhotoUrl)) {
-          try {
-            const processedPhoto = await processPlayerPhotoUrl(req, rawPhotoUrl);
-            photoUrl = processedPhoto.photo_url;
-            originalPhotoUrl = processedPhoto.original_photo_url;
-            photoProcessingStatus = processedPhoto.photo_processing_status;
-            photoProcessingMode = processedPhoto.photo_processing_mode;
-          } catch (photoError) {
-            // Keep the external URL instead of failing the player row. Import errors are for player data errors.
-            console.warn("Photo URL processing skipped:", rawPhotoUrl, photoError.message);
-          }
-        }
+        // Save raw URL immediately - photo processing happens in the background after responding.
+        // Processing photos synchronously (download + face-crop) per row inside the HTTP request
+        // can take 10-30 s for large sheets and triggers proxy / client timeouts.
+        const photoUrl = rawPhotoUrl || null;
+        const originalPhotoUrl = null;
+        const photoProcessingStatus = rawPhotoUrl && /^https?:\/\//i.test(rawPhotoUrl) ? "URL_NOT_PROCESSED" : null;
+        const photoProcessingMode = null;
 
         const orgPlayer = await upsertOrgPlayer(conn, organizationId, {
           player_name: playerName,
@@ -498,14 +524,14 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
           original_photo_url: originalPhotoUrl,
           photo_processing_status: photoProcessingStatus,
           photo_processing_mode: photoProcessingMode,
-          photo_source: photoUrl ? (originalPhotoUrl ? "EXCEL_URL_PROCESSED" : "EXCEL_URL") : null,
+          photo_source: rawPhotoUrl ? "EXCEL_URL" : null,
           source: "EXCEL",
           serial_number: serialNumber,
         });
 
         const latestPhotoUrl = photoUrl || orgPlayer.photo_url || null;
 
-        await conn.query(
+        const [playerResult] = await conn.query(
           `INSERT INTO players
            (auction_id, organization_id, org_player_id, player_name, player_mobile, normalized_mobile, player_email,
             category, player_role, base_price, tshirt_size, age, area, previous_team, photo_url,
@@ -533,6 +559,10 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
           ]
         );
 
+        // Queue background photo processing for rows with an HTTP photo URL
+        if (rawPhotoUrl && /^https?:\/\//i.test(rawPhotoUrl)) {
+          pendingPhotoJobs.push({ orgPlayerId: orgPlayer.id, playerId: playerResult.insertId, rawPhotoUrl, req });
+        }
         inserted += 1;
       } catch (rowError) {
         failed += 1;
@@ -556,7 +586,13 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
       count: inserted,
       failed,
       import_batch_id: importBatchId,
+      photos_pending: pendingPhotoJobs.length,
     });
+
+    // Process photos in background AFTER responding - keeps upload fast regardless of photo count
+    if (pendingPhotoJobs.length > 0) {
+      setImmediate(() => processPhotoJobsInBackground(pendingPhotoJobs));
+    }
   } catch (error) {
     await conn.rollback();
     console.error("upload players error", error);
