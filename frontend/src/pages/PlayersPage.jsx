@@ -1,12 +1,18 @@
 import { Download, Edit3, History, ImagePlus, Plus, Save, Search, Upload, Wrench, X, Trash2, CheckSquare, Square } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
+import { io } from "socket.io-client";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import AdminLayout from "../components/layout/AdminLayout";
 import StatusBadge from "../components/ui/StatusBadge";
 import ConfirmDeleteModal from "../components/ui/ConfirmDeleteModal";
 import api from "../api/api";
+
+const socket = io(import.meta.env.VITE_SOCKET_URL || "http://localhost:5000", {
+  transports: ["websocket", "polling"],
+  autoConnect: true,
+});
 
 const DEFAULT_PLAYER_IMAGE = "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?q=80&w=300&auto=format&fit=crop";
 
@@ -450,6 +456,9 @@ export default function PlayersPage() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState([]);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  // Photo processing progress: { total, done }
+  const [photoProgress, setPhotoProgress] = useState(null);
+  const photoProgressRef = useRef(null);
 
   async function load() {
     try {
@@ -463,7 +472,22 @@ export default function PlayersPage() {
       setPlayers(playerRes.data);
       setTeams(teamRes.data);
       if (playerRes.data.length > 0) {
-        setSelectedPlayer(playerRes.data[0]);
+        setSelectedPlayer((prev) => {
+          if (!prev) return playerRes.data[0];
+          const match = playerRes.data.find((p) => p.id === prev.id);
+          return match || playerRes.data[0];
+        });
+      }
+
+      // Check for pending background photos
+      const pendingPhotos = playerRes.data.filter((p) => p.photo_processing_status === "URL_NOT_PROCESSED").length;
+      if (pendingPhotos > 0) {
+        setPhotoProgress((prev) => {
+          if (prev && prev.total >= pendingPhotos) {
+            return { ...prev, done: Math.max(prev.done, prev.total - pendingPhotos) };
+          }
+          return { total: pendingPhotos, done: 0 };
+        });
       }
     } catch (err) {
       console.error("load players error", err);
@@ -476,6 +500,63 @@ export default function PlayersPage() {
   useEffect(() => {
     setSelectedPlayerIds((current) => current.filter((id) => players.some((p) => p.id === id)));
   }, [players]);
+
+  // ── Socket: listen for real-time photo-ready events ────────────────────────
+  useEffect(() => {
+    if (!auctionId) return;
+    socket.emit("joinAuction", Number(auctionId));
+
+    function onPhotoReady({ playerId, photo_url, photo_processing_status }) {
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id === playerId
+            ? { ...p, photo_url, photo_processing_status }
+            : p
+        )
+      );
+      // Update selected player panel too
+      setSelectedPlayer((prev) =>
+        prev?.id === playerId ? { ...prev, photo_url, photo_processing_status } : prev
+      );
+      // Advance progress counter
+      setPhotoProgress((prev) => {
+        if (!prev) return null;
+        const done = prev.done + 1;
+        const next = { ...prev, done };
+        photoProgressRef.current = next;
+        // Auto-clear banner when all done
+        if (done >= prev.total) {
+          setTimeout(() => setPhotoProgress(null), 3000);
+        }
+        return next;
+      });
+    }
+
+    socket.on("playerPhotoReady", onPhotoReady);
+    return () => {
+      socket.off("playerPhotoReady", onPhotoReady);
+    };
+  }, [auctionId]);
+
+  // ── Fallback poller while photos are processing in background ──────────────
+  useEffect(() => {
+    if (!photoProgress || photoProgress.done >= photoProgress.total) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await api.get(`/players/auction/${auctionId}`);
+        const pending = res.data.filter((p) => p.photo_processing_status === "URL_NOT_PROCESSED").length;
+        setPlayers(res.data);
+        if (pending === 0) {
+          setPhotoProgress((prev) => (prev ? { ...prev, done: prev.total } : null));
+          setTimeout(() => setPhotoProgress(null), 3000);
+        } else if (photoProgressRef.current) {
+          const done = Math.max(0, photoProgressRef.current.total - pending);
+          setPhotoProgress((prev) => (prev ? { ...prev, done } : null));
+        }
+      } catch (_) {}
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [photoProgress, auctionId]);
 
   const filteredPlayers = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -650,7 +731,14 @@ export default function PlayersPage() {
       setError(""); const fd = new FormData(); fd.append("file", file);
       const res = await api.post(`/players/upload/${auctionId}`, fd);
       const failed = Number(res.data?.failed || 0);
+      const photosPending = Number(res.data?.photos_pending || 0);
       setMessage(failed ? `Players uploaded: ${res.data.count}, failed rows: ${failed}` : "Players uploaded successfully");
+      // If photos need background processing, show the progress banner
+      if (photosPending > 0) {
+        const progress = { total: photosPending, done: 0 };
+        setPhotoProgress(progress);
+        photoProgressRef.current = progress;
+      }
       load();
     } catch (err) { console.error("upload players error", err); setError(err.response?.data?.message || "Failed to upload players"); }
     finally { setUploadingPlayers(false); event.target.value = ""; }
@@ -805,6 +893,46 @@ export default function PlayersPage() {
               {error}
             </div>
           )}
+          {/* Photo processing progress banner */}
+          {photoProgress && (
+            <div className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-sm transition-all duration-300 ${
+              photoProgress.done >= photoProgress.total && photoProgress.total > 0
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-violet-200 bg-violet-50 text-violet-800"
+            }`}>
+              {photoProgress.done >= photoProgress.total && photoProgress.total > 0 ? (
+                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white font-bold text-xs">
+                  ✓
+                </div>
+              ) : (
+                <div className="relative flex h-5 w-5 shrink-0">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-60" />
+                  <span className="relative inline-flex h-5 w-5 rounded-full bg-violet-500" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <span className="font-semibold">
+                  {photoProgress.done >= photoProgress.total && photoProgress.total > 0
+                    ? `All ${photoProgress.total} player photos optimized and face-aligned!`
+                    : `Optimizing player photos (${photoProgress.done}/${photoProgress.total} completed)…`}
+                </span>
+                <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      photoProgress.done >= photoProgress.total && photoProgress.total > 0 ? "bg-emerald-500" : "bg-violet-500"
+                    }`}
+                    style={{ width: photoProgress.total > 0 ? `${Math.min(100, Math.round((photoProgress.done / photoProgress.total) * 100))}%` : "0%" }}
+                  />
+                </div>
+              </div>
+              <button
+                onClick={() => setPhotoProgress(null)}
+                className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-slate-200/50 hover:text-slate-600 transition"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
 
           {/* Modal Overlays — now pop up centered over the page instead of
               being inserted inline into the page flow */}
@@ -872,12 +1000,19 @@ export default function PlayersPage() {
                 <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
                   <div className="flex items-start justify-between gap-3 p-5">
                     <div className="flex items-start gap-4">
-                      <img
-                        src={activeFocusPlayer.photo_url || DEFAULT_PLAYER_IMAGE}
-                        alt={activeFocusPlayer.player_name}
-                        className="h-16 w-16 rounded-xl border border-slate-200 object-cover"
-                        onError={(e) => { e.currentTarget.src = DEFAULT_PLAYER_IMAGE; }}
-                      />
+                      {activeFocusPlayer.photo_processing_status === "URL_NOT_PROCESSED" ? (
+                        <div className="h-16 w-16 rounded-xl border border-violet-200 bg-violet-50 flex flex-col items-center justify-center shrink-0">
+                          <div className="h-5 w-5 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
+                          <span className="text-[8px] font-bold text-violet-600 mt-1">Optimizing…</span>
+                        </div>
+                      ) : (
+                        <img
+                          src={activeFocusPlayer.photo_url || DEFAULT_PLAYER_IMAGE}
+                          alt={activeFocusPlayer.player_name}
+                          className="h-16 w-16 rounded-xl border border-slate-200 object-cover"
+                          onError={(e) => { e.currentTarget.src = DEFAULT_PLAYER_IMAGE; }}
+                        />
+                      )}
                       <div>
                         <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Lot #{activeFocusPlayer.id}</span>
                         <h2 className="text-xl font-black tracking-tight text-slate-900">
@@ -1000,13 +1135,22 @@ export default function PlayersPage() {
                         </div>
                       )}
                       <div className="relative w-20 h-24 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-                        <img
-                          src={player.photo_url || DEFAULT_PLAYER_IMAGE}
-                          alt={player.player_name}
-                          className="h-full w-full object-cover object-center"
-                          onError={(e) => { e.currentTarget.src = DEFAULT_PLAYER_IMAGE; }}
-                        />
-                        <div className="absolute top-1 left-1 rounded bg-slate-900 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                        {player.photo_processing_status === "URL_NOT_PROCESSED" ? (
+                          <div className="h-full w-full relative flex flex-col items-center justify-center bg-gradient-to-br from-violet-50 via-purple-50 to-indigo-50 border border-violet-100 overflow-hidden">
+                            <div className="relative flex flex-col items-center gap-1.5 p-1 text-center">
+                              <div className="h-5 w-5 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
+                              <span className="text-[9px] font-bold text-violet-700 tracking-tight leading-tight">Optimizing…</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <img
+                            src={player.photo_url || DEFAULT_PLAYER_IMAGE}
+                            alt={player.player_name}
+                            className="h-full w-full object-cover object-center transition-all duration-300"
+                            onError={(e) => { e.currentTarget.src = DEFAULT_PLAYER_IMAGE; }}
+                          />
+                        )}
+                        <div className="absolute top-1 left-1 rounded bg-slate-900/80 px-1.5 py-0.5 text-[10px] font-bold text-white backdrop-blur-sm">
                           {idx + 1}
                         </div>
                       </div>
