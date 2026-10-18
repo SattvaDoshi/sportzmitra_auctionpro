@@ -435,7 +435,7 @@ export default function AuctionHero({ auction, state, viewerCount = 0 }) {
         </div>
       </header>
 
-      <section className="mt-4 hidden md:block">
+      <section className="mt-4 hidden md:block lg:hidden">
         <div className="rounded-2xl border border-white/10 bg-[#2b0d29]/95 p-4 text-white shadow-2xl backdrop-blur-md lg:p-5">
           <div className="text-xs font-bold uppercase tracking-wide text-white/90 lg:text-sm">
             {roundNo ? (

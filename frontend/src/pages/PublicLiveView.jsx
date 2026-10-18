@@ -645,27 +645,28 @@ function StatBox({ label, value }) {
 }
 
 /* One sponsor logo on a white pill; falls back to a "Brand Logo" placeholder. */
+/* One sponsor logo, no background, larger size; falls back to a "Brand Logo" placeholder. */
 function SponsorLogo({ url }) {
   const [failed, setFailed] = useState(false);
   const src = url ? getImageUrl(url) : "";
 
   return (
-    <div className="flex items-center gap-2 rounded-lg bg-white px-4 py-1.5 shadow-lg">
+    <div className="flex items-center justify-center">
       {src && !failed ? (
         <img
           src={src}
           alt="Sponsor"
           draggable="false"
           onError={() => setFailed(true)}
-          className="h-8 w-auto max-w-[160px] object-contain sm:h-10"
+          className="h-12 w-auto max-w-[200px] object-contain drop-shadow-[0_0_10px_rgba(255,255,255,0.25)] sm:h-16 sm:max-w-[260px] lg:h-20 lg:max-w-[320px]"
         />
       ) : (
-        <>
-          <span className="h-6 w-6 shrink-0 rounded-full border-[5px] border-indigo-500 bg-white sm:h-7 sm:w-7" />
-          <span className="text-sm font-extrabold uppercase tracking-wide text-slate-900 sm:text-base">
+        <div className="flex items-center gap-2">
+          <span className="h-8 w-8 shrink-0 rounded-full border-[6px] border-sky-400 sm:h-10 sm:w-10" />
+          <span className="text-base font-extrabold uppercase tracking-wide text-white sm:text-xl">
             Brand Logo
           </span>
-        </>
+        </div>
       )}
     </div>
   );
@@ -1063,13 +1064,13 @@ export default function PublicLiveView() {
               Sponsored by
               <span className="h-px flex-1 bg-white/25" />
             </div>
-            <div className="flex max-w-full flex-wrap items-center justify-center gap-3">
-              {sponsorUrls.length > 0 ? (
-                sponsorUrls.map((url, i) => <SponsorLogo key={i} url={url} />)
-              ) : (
-                <SponsorLogo url="" />
-              )}
-            </div>
+           <div className="flex max-w-full flex-wrap items-center justify-center gap-x-8 gap-y-4 sm:gap-x-12">
+  {sponsorUrls.length > 0 ? (
+    sponsorUrls.map((url, i) => <SponsorLogo key={i} url={url} />)
+  ) : (
+    <SponsorLogo url="" />
+  )}
+</div>
           </div>
         </div>
       </section>

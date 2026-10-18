@@ -12,7 +12,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { io } from "socket.io-client";
 import AdminLayout from "../components/layout/AdminLayout";
@@ -98,7 +98,7 @@ function balanceOf(team) {
   );
 }
 
-function CelebrationOverlay({ celebration, onClose }) {
+function CelebrationOverlay({ celebration }) {
   if (!celebration) return null;
 
   const isSold = celebration.type === "SOLD";
@@ -106,13 +106,8 @@ function CelebrationOverlay({ celebration, onClose }) {
   const amount = celebration.amount;
 
   return (
-    <div
-      onClick={(e) => {
-        if (e.target === e.currentTarget && onClose) onClose();
-      }}
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/80 backdrop-blur-md"
-    >
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+    <div className="pointer-events-none fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/80 backdrop-blur-md">
+      <div className="absolute inset-0 overflow-hidden">
         {Array.from({ length: 28 }).map((_, index) => (
           <span
             key={index}
@@ -126,22 +121,12 @@ function CelebrationOverlay({ celebration, onClose }) {
       </div>
 
       <div
-        className={`celebration-pop relative max-w-[92vw] rounded-3xl border-8 p-8 text-center shadow-2xl backdrop-blur-xl ${
+        className={`celebration-pop max-w-[92vw] rounded-3xl border-8 p-8 text-center shadow-2xl backdrop-blur-xl ${
           isSold
             ? "border-green-600 bg-white text-slate-900 shadow-green-500/30"
             : "border-red-600 bg-white text-slate-900 shadow-red-500/30"
         }`}
       >
-        {onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="absolute right-3 top-3 z-30 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-slate-100 text-slate-600 transition hover:bg-slate-200 hover:text-slate-900 active:scale-95"
-          >
-            <X size={18} />
-          </button>
-        )}
         <div
           className={`text-[clamp(56px,10vw,140px)] font-black uppercase leading-none tracking-wider ${
             isSold ? "text-green-600" : "text-red-600"
@@ -208,20 +193,6 @@ export default function LiveControl() {
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [celebration, setCelebration] = useState(null);
-  const celebrationTimer = useRef(null);
-
-  const closeCelebration = useCallback(() => {
-    clearTimeout(celebrationTimer.current);
-    setCelebration(null);
-  }, []);
-
-  const triggerCelebration = useCallback((data, durationMs = 5000) => {
-    clearTimeout(celebrationTimer.current);
-    setCelebration(data);
-    celebrationTimer.current = setTimeout(() => setCelebration(null), durationMs);
-  }, []);
-
-  useEffect(() => () => clearTimeout(celebrationTimer.current), []);
   const [recentTeams, setRecentTeams] = useState([]);
   // Audit + Correction
   const [auditLog, setAuditLog] = useState([]);
@@ -282,7 +253,7 @@ export default function LiveControl() {
 
     const handleSold = (payload) => {
       setState((prev) => {
-        triggerCelebration({
+        setCelebration({
           type: "SOLD",
           teamName:
             payload?.team_name ||
@@ -291,15 +262,17 @@ export default function LiveControl() {
             prev?.highest_team_name ||
             "",
           amount: payload?.sold_amount || payload?.bid_amount || prev?.current_bid || bid,
-        }, 5000);
+        });
         return payload?.state || prev;
       });
+      setTimeout(() => setCelebration(null), 2200);
       clearSelectedTeam();
       applySnapshot(payload);
     };
 
     const handleUnsold = (payload) => {
-      triggerCelebration({ type: "UNSOLD" }, 4000);
+      setCelebration({ type: "UNSOLD" });
+      setTimeout(() => setCelebration(null), 1800);
       clearSelectedTeam();
       applySnapshot(payload);
     };
@@ -370,7 +343,8 @@ export default function LiveControl() {
       const response = await fn();
 
       if (options.celebration) {
-        triggerCelebration(options.celebration, options.celebration.type === "SOLD" ? 5000 : 4000);
+        setCelebration(options.celebration);
+        setTimeout(() => setCelebration(null), options.celebration.type === "SOLD" ? 2200 : 1800);
       }
 
       if (response?.data?.snapshot) {
@@ -573,7 +547,7 @@ export default function LiveControl() {
       publicSlug={auction?.public_slug}
        fullscreen
     >
-      <CelebrationOverlay celebration={celebration} onClose={closeCelebration} />
+      <CelebrationOverlay celebration={celebration} />
 
       <div className="mx-auto max-w-7xl font-sans text-slate-800 p-3 md:p-6 bg-slate-50 min-h-screen">
         
@@ -987,6 +961,66 @@ export default function LiveControl() {
                   <div className="p-4 text-center text-xs font-semibold text-slate-400">No teams found</div>
                 )}
               </div>
+            </div>
+
+            {/* Selected Team Card (moved below) */}
+            <div className="mt-4 rounded-xl border border-[#8CC63F]/40 bg-[#8CC63F]/10 p-3.5">
+              <div className="text-[10px] font-black uppercase tracking-widest text-slate-800">
+                Currently Bidding Team
+              </div>
+
+              {selectedTeam ? (() => {
+                const tmb = maxBidMap[selectedTeam.id];
+                const maxBidVal = tmb?.max_bid ?? null;
+                const isBidOver = maxBidVal !== null && Number(bid || 0) > maxBidVal;
+                return (
+                  <div className="mt-2.5">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-12 shrink-0 items-center justify-center rounded-lg bg-[#8CC63F] text-xs font-black text-slate-950">
+                        {teamInitials(selectedTeam)}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-base font-black uppercase text-slate-900">
+                          {selectedTeam.team_name}
+                        </div>
+                        <div className="text-xs font-black text-[#E5007D]">
+                          Balance: ₹{formatAmount(balanceOf(selectedTeam))}
+                        </div>
+                      </div>
+                    </div>
+                    {maxBidVal !== null && (
+                      <div className={`mt-2.5 flex items-center justify-between rounded-lg px-3 py-2 text-xs font-black ${
+                        isBidOver
+                          ? "bg-red-100 border border-red-300 text-red-700"
+                          : maxBidVal === 0
+                          ? "bg-orange-100 border border-orange-300 text-orange-700"
+                          : "bg-slate-100 border border-slate-200 text-slate-700"
+                      }`}>
+                        <span className="uppercase tracking-wider">Max Bid</span>
+                        <span className={`text-sm font-black ${
+                          isBidOver ? "text-red-600" : maxBidVal === 0 ? "text-orange-600" : "text-emerald-600"
+                        }`}>
+                          {maxBidVal === 0 ? "LOCKED" : `₹${formatAmount(maxBidVal)}`}
+                        </span>
+                      </div>
+                    )}
+                    {isBidOver && (
+                      <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-red-600">
+                        ⚠ Current bid exceeds this team's max allowable bid!
+                      </div>
+                    )}
+                    {maxBidVal === 0 && !isBidOver && (
+                      <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-orange-600">
+                        ⚠ Team has no bidding capacity — purse reserved for remaining slots
+                      </div>
+                    )}
+                  </div>
+                );
+              })() : (
+                <div className="mt-1.5 text-xs font-semibold text-slate-500">
+                  No team selected yet
+                </div>
+              )}
             </div>
           </section>
         </div>
