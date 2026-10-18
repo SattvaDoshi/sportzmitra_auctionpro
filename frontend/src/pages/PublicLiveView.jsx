@@ -748,7 +748,7 @@ export default function PublicLiveView() {
             teamLogo: getTeamLogo(null, response.data.state),
             amount: response.data.state?.current_bid || 0,
           },
-          7500
+          2500
         );
       }
     } catch (error) {
@@ -800,7 +800,7 @@ export default function PublicLiveView() {
             teamLogo: getTeamLogo(null, payload.state),
             amount: payload?.state?.current_bid || 0,
           },
-          7500
+          2500
         );
       }
     };
@@ -833,7 +833,7 @@ export default function PublicLiveView() {
           ),
           amount: payload?.sold_amount || payload?.bid_amount || prev?.current_bid || 0,
         },
-        7500
+        2500
       );
 
       if (payload.state) setState(payload.state);
@@ -847,7 +847,7 @@ export default function PublicLiveView() {
       const prev = stateRef.current || {};
       showCelebration(
         { type: "UNSOLD", player: buildPlayer({ ...prev, ...(payload?.player || {}) }) },
-        4000
+        1500
       );
 
       setSnapshot(payload);
@@ -1090,7 +1090,7 @@ function CelebrationOverlay({ celebration, onClose }) {
   return (
     <div
       onClick={(e) => {
-        if (e.target === e.currentTarget && onClose) onClose();
+        if (onClose) onClose();
       }}
       className="fixed inset-0 z-[9999] flex items-start justify-center overflow-y-auto bg-[#020a1f]/90 p-3 backdrop-blur-md sm:p-6 md:items-center"
     >

@@ -13,13 +13,20 @@ const { detectFaceBox, applyBrightnessContrast, isOpenCVAvailable } = require(".
 let driveAuth = null;
 function getDriveAuth() {
   if (driveAuth) return driveAuth;
-  const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE;
-  if (!keyFile) return null;
+  const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE || "google-service-account.json";
   try {
     const { google } = require("googleapis");
-    const keyPath = path.resolve(keyFile);
-    if (!fs.existsSync(keyPath)) {
-      console.warn("[Drive] Service account key file not found:", keyPath);
+    const candidates = [
+      path.resolve(keyFile),
+      path.resolve(__dirname, "..", "..", keyFile),
+      path.resolve(__dirname, "..", "..", "google-service-account.json"),
+      path.resolve(process.cwd(), keyFile),
+      path.resolve(process.cwd(), "backend", keyFile),
+      path.resolve(process.cwd(), "google-service-account.json"),
+    ];
+    const keyPath = candidates.find((p) => fs.existsSync(p));
+    if (!keyPath) {
+      console.warn("[Drive] Service account key file not found in candidates");
       return null;
     }
     driveAuth = new google.auth.GoogleAuth({
@@ -42,7 +49,15 @@ fs.mkdirSync(processedDir, { recursive: true });
 
 function publicUrl(req, relativePath) {
   const normalized = relativePath.replace(/\\/g, "/");
-  return `${req.protocol}://${req.get("host")}/uploads/${normalized}`;
+  let origin = process.env.APP_BASE_URL;
+  if (!origin && req && typeof req.get === "function" && req.protocol) {
+    origin = `${req.protocol}://${req.get("host")}`;
+  }
+  if (!origin) {
+    origin = "http://localhost:5000";
+  }
+  origin = origin.replace(/\/+$/, "");
+  return `${origin}/uploads/${normalized}`;
 }
 
 function isHeic(file = {}) {

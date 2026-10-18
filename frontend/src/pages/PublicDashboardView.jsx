@@ -1,3 +1,4 @@
+import { matchesPlayerSearch } from "../utils/playerSearch";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -140,16 +141,10 @@ export default function PublicDashboardView() {
   }, [data]);
 
   function filterRows(rows = []) {
-    const q = search.trim().toLowerCase();
+    const q = search.trim();
     return rows.filter((row) => {
       const catOk = category === "ALL" || row.category === category;
- const qOk =
-  !q ||
-  `${row.serial_number || ""} ${row.player_name || ""} ${row.player_role || ""} ${
-    row.sold_team_name || ""
-  } ${row.team_name || ""}`
-    .toLowerCase()
-    .includes(q);
+      const qOk = !q || matchesPlayerSearch(row, q);
       return catOk && qOk;
     });
   }

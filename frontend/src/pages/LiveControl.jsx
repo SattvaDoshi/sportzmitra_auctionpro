@@ -1,3 +1,4 @@
+import { matchesPlayerSearch, sortPlayersBySearch } from "../utils/playerSearch";
 import {
   Activity,
   IndianRupee,
@@ -98,7 +99,7 @@ function balanceOf(team) {
   );
 }
 
-function CelebrationOverlay({ celebration }) {
+function CelebrationOverlay({ celebration, onClose }) {
   if (!celebration) return null;
 
   const isSold = celebration.type === "SOLD";
@@ -106,7 +107,7 @@ function CelebrationOverlay({ celebration }) {
   const amount = celebration.amount;
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/80 backdrop-blur-md">
+    <div onClick={onClose} className="cursor-pointer fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/80 backdrop-blur-md">
       <div className="absolute inset-0 overflow-hidden">
         {Array.from({ length: 28 }).map((_, index) => (
           <span
@@ -265,14 +266,14 @@ export default function LiveControl() {
         });
         return payload?.state || prev;
       });
-      setTimeout(() => setCelebration(null), 2200);
+      setTimeout(() => setCelebration(null), 1000);
       clearSelectedTeam();
       applySnapshot(payload);
     };
 
     const handleUnsold = (payload) => {
       setCelebration({ type: "UNSOLD" });
-      setTimeout(() => setCelebration(null), 1800);
+      setTimeout(() => setCelebration(null), 800);
       clearSelectedTeam();
       applySnapshot(payload);
     };
@@ -325,9 +326,10 @@ export default function LiveControl() {
   );
 
   const filteredPlayers = useMemo(() => {
-    const q = manualPlayerSearch.trim().toLowerCase();
-    const source = q ? eligiblePlayers.filter((p) => playerSearchText(p).includes(q)) : eligiblePlayers;
-    return source.slice(0, 12);
+    const q = manualPlayerSearch.trim();
+    if (!q) return eligiblePlayers.slice(0, 12);
+    const matched = eligiblePlayers.filter((p) => matchesPlayerSearch(p, q));
+    return sortPlayersBySearch(matched, q).slice(0, 12);
   }, [eligiblePlayers, manualPlayerSearch]);
 
   const filteredTeams = useMemo(() => {
@@ -344,7 +346,7 @@ export default function LiveControl() {
 
       if (options.celebration) {
         setCelebration(options.celebration);
-        setTimeout(() => setCelebration(null), options.celebration.type === "SOLD" ? 2200 : 1800);
+        setTimeout(() => setCelebration(null), options.celebration.type === "SOLD" ? 1000 : 800);
       }
 
       if (response?.data?.snapshot) {
@@ -547,7 +549,7 @@ export default function LiveControl() {
       publicSlug={auction?.public_slug}
        fullscreen
     >
-      <CelebrationOverlay celebration={celebration} />
+      <CelebrationOverlay celebration={celebration} onClose={() => setCelebration(null)} />
 
       <div className="mx-auto max-w-7xl font-sans text-slate-800 p-3 md:p-6 bg-slate-50 min-h-screen">
         

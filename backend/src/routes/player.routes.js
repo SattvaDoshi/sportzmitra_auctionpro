@@ -1,4 +1,4 @@
-﻿const express = require("express");
+const express = require("express");
 const multer = require("multer");
 const xlsx = require("xlsx");
 const path = require("path");
@@ -110,7 +110,7 @@ async function upsertOrgPlayer(conn, organizationId, data) {
     // skipPhotoUpdate: when editing a specific auction player, we don't want to overwrite
     // the shared org_player photo — multiple players can share the same org_player (same email)
     // and updating the org_player photo would change ALL of them.
-    const skipPhotoUpdate = data.skipPhotoUpdate || false;
+    const skipPhotoUpdate = data.skipPhotoUpdate || (existing.photo_processing_status === "PROCESSED" && existing.photo_url && photoProcessingStatus === "URL_NOT_PROCESSED");
 
     if (skipPhotoUpdate) {
       await conn.query(
@@ -246,6 +246,12 @@ async function processPhotoJobsInBackground(jobs) {
             `UPDATE players SET photo_processing_status = 'FAILED' WHERE id = ?`,
             [job.playerId]
           );
+          if (job.orgPlayerId) {
+            await pool.query(
+              `UPDATE org_players SET photo_processing_status = 'FAILED' WHERE id = ?`,
+              [job.orgPlayerId]
+            );
+          }
           emitAuctionUpdate(job.auctionId, "playerPhotoReady", {
             playerId: job.playerId,
             photo_url: null,
@@ -359,6 +365,7 @@ router.post("/", authMiddleware, requireRole("AUCTION_ADMIN", "SUPER_ADMIN"), as
     });
 
     const latestPhotoUrl = clean(photo_url) || orgPlayer.photo_url || null;
+    const finalPhotoStatus = photo_processing_status || (latestPhotoUrl ? "PROCESSED" : null);
 
     const [result] = await conn.query(
       `INSERT INTO players
@@ -381,6 +388,7 @@ router.post("/", authMiddleware, requireRole("AUCTION_ADMIN", "SUPER_ADMIN"), as
         clean(area),
         clean(previous_team),
         latestPhotoUrl,
+        finalPhotoStatus,
         clean(serial_number),
         clean(req.body.player_info),
       ]
@@ -451,6 +459,7 @@ router.put("/:playerId", authMiddleware, requireRole("AUCTION_ADMIN", "SUPER_ADM
     });
 
     const latestPhotoUrl = clean(photo_url) || orgPlayer.photo_url || existing.photo_url || null;
+    const finalPhotoStatus = photo_processing_status || (latestPhotoUrl ? "PROCESSED" : null);
 
     await conn.query(
       `UPDATE players
@@ -560,7 +569,9 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
           serial_number: serialNumber,
         });
 
-        const latestPhotoUrl = photoUrl || orgPlayer.photo_url || null;
+        const hasExistingProcessed = orgPlayer.photo_processing_status === "PROCESSED" && orgPlayer.photo_url;
+        const latestPhotoUrl = hasExistingProcessed ? orgPlayer.photo_url : (photoUrl || orgPlayer.photo_url || null);
+        const finalUploadPhotoStatus = hasExistingProcessed ? "PROCESSED" : photoProcessingStatus;
 
         const [playerResult] = await conn.query(
           `INSERT INTO players
@@ -585,7 +596,7 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
             area,
             previousTeam,
             latestPhotoUrl,
-            photoProcessingStatus,
+            finalUploadPhotoStatus,
             importBatchId,
             serialNumber,
             playerInfo,
@@ -593,7 +604,7 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
         );
 
         // Queue background photo processing for rows with an HTTP photo URL
-        if (rawPhotoUrl && /^https?:\/\//i.test(rawPhotoUrl)) {
+        if (!hasExistingProcessed && rawPhotoUrl && /^https?:\/\//i.test(rawPhotoUrl)) {
           pendingPhotoJobs.push({ orgPlayerId: orgPlayer.id, playerId: playerResult.insertId, rawPhotoUrl, req, auctionId });
         }
         inserted += 1;

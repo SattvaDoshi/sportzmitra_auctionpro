@@ -1,3 +1,4 @@
+import { matchesPlayerSearch, sortPlayersBySearch } from "../utils/playerSearch";
 
 import { useMemo, useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
@@ -843,21 +844,17 @@ function PlayerResultsTab({ players }) {
     useState("ALL");
 
   const filtered = useMemo(() => {
-    return players.filter((p) => {
+    const q = query.trim();
+    const list = players.filter((p) => {
       const matchesStatus =
         statusFilter === "ALL" ||
         p.status === statusFilter;
 
-      const matchesQuery = (
-        p.player_name || ""
-      )
-        .toLowerCase()
-        .includes(
-          query.trim().toLowerCase()
-        );
+      const matchesQuery = !q || matchesPlayerSearch(p, q);
 
       return matchesStatus && matchesQuery;
     });
+    return q ? sortPlayersBySearch(list, q) : list;
   }, [players, query, statusFilter]);
 
   return (

@@ -1,3 +1,4 @@
+import { matchesPlayerSearch, sortPlayersBySearch } from "../utils/playerSearch";
 import { Download, Edit3, History, ImagePlus, Plus, Save, Search, Upload, Wrench, X, Trash2, CheckSquare, Square } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
@@ -559,30 +560,16 @@ export default function PlayersPage() {
   }, [photoProgress, auctionId]);
 
   const filteredPlayers = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = search.trim();
     const filtered = players.filter((player) => {
       const statusMatch = status === "ALL" || player.status === status;
-      const textMatch = !q || [player.serial_number, player.player_name, player.player_mobile, player.category, player.player_role, player.area, player.sold_team_name].join(" ").toLowerCase().includes(q);
+      const textMatch = !q || matchesPlayerSearch(player, q);
       return statusMatch && textMatch;
     });
 
     if (!q) return filtered;
 
-    // Sort to prioritize serial number matches
-    return filtered.sort((a, b) => {
-      const aSerial = String(a.serial_number || "").toLowerCase();
-      const bSerial = String(b.serial_number || "").toLowerCase();
-      
-      const aExact = aSerial === q ? 1 : 0;
-      const bExact = bSerial === q ? 1 : 0;
-      if (aExact !== bExact) return bExact - aExact;
-
-      const aStart = aSerial.startsWith(q) ? 1 : 0;
-      const bStart = bSerial.startsWith(q) ? 1 : 0;
-      if (aStart !== bStart) return bStart - aStart;
-
-      return 0;
-    });
+    return sortPlayersBySearch(filtered, q);
   }, [players, search, status]);
 
   const counts = useMemo(() => {
@@ -1000,7 +987,7 @@ export default function PlayersPage() {
                 <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
                   <div className="flex items-start justify-between gap-3 p-5">
                     <div className="flex items-start gap-4">
-                      {activeFocusPlayer.photo_processing_status === "URL_NOT_PROCESSED" ? (
+                      {photoProgress && activeFocusPlayer.photo_processing_status === "URL_NOT_PROCESSED" ? (
                         <div className="h-16 w-16 rounded-xl border border-violet-200 bg-violet-50 flex flex-col items-center justify-center shrink-0">
                           <div className="h-5 w-5 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
                           <span className="text-[8px] font-bold text-violet-600 mt-1">Optimizing…</span>
@@ -1135,7 +1122,7 @@ export default function PlayersPage() {
                         </div>
                       )}
                       <div className="relative w-20 h-24 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-                        {player.photo_processing_status === "URL_NOT_PROCESSED" ? (
+                        {photoProgress && player.photo_processing_status === "URL_NOT_PROCESSED" ? (
                           <div className="h-full w-full relative flex flex-col items-center justify-center bg-gradient-to-br from-violet-50 via-purple-50 to-indigo-50 border border-violet-100 overflow-hidden">
                             <div className="relative flex flex-col items-center gap-1.5 p-1 text-center">
                               <div className="h-5 w-5 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
