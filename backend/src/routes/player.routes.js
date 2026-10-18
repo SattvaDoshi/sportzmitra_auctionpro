@@ -1,4 +1,4 @@
-const express = require("express");
+﻿const express = require("express");
 const multer = require("multer");
 const xlsx = require("xlsx");
 const path = require("path");
@@ -8,6 +8,8 @@ const { authMiddleware, requireRole } = require("../middleware/authMiddleware");
 const { userHasAuctionAccess } = require("../middleware/accessMiddleware");
 const { sendError } = require("../utils/errors");
 const { processUploadedPlayerPhoto, processPlayerPhotoUrl } = require("../utils/playerPhotoProcessor");
+const { emitAuctionSnapshot, emitAuctionUpdate } = require("../socket");
+const cache = require("../utils/snapshotCache");
 
 const router = express.Router();
 const upload = multer({ dest: "src/uploads/" });
@@ -193,6 +195,71 @@ async function upsertOrgPlayer(conn, organizationId, data) {
   return created;
 }
 
+
+// ---------------------------------------------------------------------------
+// Background photo processing - called via setImmediate after bulk upload response.
+// Downloads + face-crops photos concurrently without blocking the HTTP response.
+// ---------------------------------------------------------------------------
+async function processPhotoJobsInBackground(jobs) {
+  if (!jobs || jobs.length === 0) return;
+  console.log(`[photoBackground] Processing photos for ${jobs.length} player(s) in background...`);
+
+  const CONCURRENCY = 4;
+  let jobIndex = 0;
+
+  async function worker() {
+    while (jobIndex < jobs.length) {
+      const job = jobs[jobIndex++];
+      try {
+        const processed = await processPlayerPhotoUrl(job.req, job.rawPhotoUrl);
+        const bgConn = await pool.getConnection();
+        try {
+          await bgConn.query(
+            `UPDATE org_players
+             SET photo_url = ?, original_photo_url = ?, photo_source = 'EXCEL_URL_PROCESSED',
+                 photo_processing_status = ?, photo_processing_mode = ?, photo_updated_at = NOW(),
+                 updated_at = NOW()
+             WHERE id = ?`,
+            [processed.photo_url, processed.original_photo_url,
+             processed.photo_processing_status, processed.photo_processing_mode,
+             job.orgPlayerId]
+          );
+          await bgConn.query(
+            `UPDATE players 
+             SET photo_url = ?, original_photo_url = ?, photo_processing_status = ? 
+             WHERE id = ?`,
+            [processed.photo_url, processed.original_photo_url, processed.photo_processing_status, job.playerId]
+          );
+          // Emit real-time update so admin UI can swap the photo immediately
+          emitAuctionUpdate(job.auctionId, "playerPhotoReady", {
+            playerId: job.playerId,
+            photo_url: processed.photo_url,
+            photo_processing_status: processed.photo_processing_status,
+          });
+        } finally {
+          bgConn.release();
+        }
+      } catch (err) {
+        console.warn(`[photoBackground] Photo failed for player ${job.playerId}:`, err.message);
+        try {
+          await pool.query(
+            `UPDATE players SET photo_processing_status = 'FAILED' WHERE id = ?`,
+            [job.playerId]
+          );
+          emitAuctionUpdate(job.auctionId, "playerPhotoReady", {
+            playerId: job.playerId,
+            photo_url: null,
+            photo_processing_status: "FAILED",
+          });
+        } catch (_) {}
+      }
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, () => worker());
+  await Promise.all(workers);
+  console.log(`[photoBackground] Done processing ${jobs.length} photo(s).`);
+}
 router.post(
   "/upload-photo",
   authMiddleware,
@@ -223,6 +290,7 @@ router.get("/auction/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
     const [rows] = await pool.query(
       `SELECT p.*, 
               COALESCE(p.photo_url, op.photo_url) AS photo_url,
+              COALESCE(p.photo_processing_status, op.photo_processing_status) AS photo_processing_status,
               op.id AS master_player_id,
               op.photo_url AS master_photo_url,
               t.team_name AS sold_team_name
@@ -447,6 +515,7 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
     const importBatchId = batchResult.insertId;
     let inserted = 0;
     let failed = 0;
+    const pendingPhotoJobs = []; // photo jobs to process in background after responding
 
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index];
@@ -467,23 +536,13 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
         const playerInfo = clean(row["Player Info"] || row["Rich Text Info"] || row.player_info);
         const serialNumber = clean(row["Serial Number"] || row["Serial No"] || row.serial_number || row.id || row.Id);
         const rawPhotoUrl = clean(row["Photo URL"] || row["Photo"] || row.photo_url || row.photo);
-        let photoUrl = rawPhotoUrl;
-        let originalPhotoUrl = null;
-        let photoProcessingStatus = rawPhotoUrl ? "URL_NOT_PROCESSED" : null;
-        let photoProcessingMode = null;
-
-        if (rawPhotoUrl && /^https?:\/\//i.test(rawPhotoUrl)) {
-          try {
-            const processedPhoto = await processPlayerPhotoUrl(req, rawPhotoUrl);
-            photoUrl = processedPhoto.photo_url;
-            originalPhotoUrl = processedPhoto.original_photo_url;
-            photoProcessingStatus = processedPhoto.photo_processing_status;
-            photoProcessingMode = processedPhoto.photo_processing_mode;
-          } catch (photoError) {
-            // Keep the external URL instead of failing the player row. Import errors are for player data errors.
-            console.warn("Photo URL processing skipped:", rawPhotoUrl, photoError.message);
-          }
-        }
+        // Save raw URL immediately - photo processing happens in the background after responding.
+        // Processing photos synchronously (download + face-crop) per row inside the HTTP request
+        // can take 10-30 s for large sheets and triggers proxy / client timeouts.
+        const photoUrl = rawPhotoUrl || null;
+        const originalPhotoUrl = null;
+        const photoProcessingStatus = rawPhotoUrl && /^https?:\/\//i.test(rawPhotoUrl) ? "URL_NOT_PROCESSED" : null;
+        const photoProcessingMode = null;
 
         const orgPlayer = await upsertOrgPlayer(conn, organizationId, {
           player_name: playerName,
@@ -496,19 +555,20 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
           original_photo_url: originalPhotoUrl,
           photo_processing_status: photoProcessingStatus,
           photo_processing_mode: photoProcessingMode,
-          photo_source: photoUrl ? (originalPhotoUrl ? "EXCEL_URL_PROCESSED" : "EXCEL_URL") : null,
+          photo_source: rawPhotoUrl ? "EXCEL_URL" : null,
           source: "EXCEL",
           serial_number: serialNumber,
         });
 
         const latestPhotoUrl = photoUrl || orgPlayer.photo_url || null;
 
-        await conn.query(
+        const [playerResult] = await conn.query(
           `INSERT INTO players
            (auction_id, organization_id, org_player_id, player_name, player_mobile, normalized_mobile, player_email,
             category, player_role, base_price, tshirt_size, age, area, previous_team, photo_url,
+            photo_processing_status,
             registration_source, import_batch_id, status, serial_number, player_info)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'EXCEL', ?, 'AVAILABLE', ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'EXCEL', ?, 'AVAILABLE', ?, ?)`,
           [
             auctionId,
             organizationId,
@@ -525,12 +585,17 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
             area,
             previousTeam,
             latestPhotoUrl,
+            photoProcessingStatus,
             importBatchId,
             serialNumber,
             playerInfo,
           ]
         );
 
+        // Queue background photo processing for rows with an HTTP photo URL
+        if (rawPhotoUrl && /^https?:\/\//i.test(rawPhotoUrl)) {
+          pendingPhotoJobs.push({ orgPlayerId: orgPlayer.id, playerId: playerResult.insertId, rawPhotoUrl, req, auctionId });
+        }
         inserted += 1;
       } catch (rowError) {
         failed += 1;
@@ -554,7 +619,13 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
       count: inserted,
       failed,
       import_batch_id: importBatchId,
+      photos_pending: pendingPhotoJobs.length,
     });
+
+    // Process photos in background AFTER responding - keeps upload fast regardless of photo count
+    if (pendingPhotoJobs.length > 0) {
+      setImmediate(() => processPhotoJobsInBackground(pendingPhotoJobs));
+    }
   } catch (error) {
     await conn.rollback();
     console.error("upload players error", error);
@@ -658,8 +729,17 @@ router.patch("/:playerId/correction", authMiddleware, requireRole("AUCTION_ADMIN
     const newPrice = Number(sold_price || 0);
     const newTeamId = sold_team_id ? Number(sold_team_id) : null;
 
-    if (player.status === "SOLD" && player.sold_team_id && Number(player.sold_price || 0) > 0) {
-      await conn.query(`UPDATE teams SET remaining_purse = remaining_purse + ? WHERE id = ?`, [Number(player.sold_price || 0), player.sold_team_id]);
+    const oldTeamId = player.sold_team_id ? Number(player.sold_team_id) : null;
+    const oldPrice = Number(player.sold_price || 0);
+
+    if (player.status === "SOLD" && oldTeamId && oldPrice > 0) {
+      await conn.query(
+        `UPDATE teams 
+         SET remaining_purse = remaining_purse + ?,
+             balance_purse = COALESCE(balance_purse, remaining_purse) + ?
+         WHERE id = ?`,
+        [oldPrice, oldPrice, oldTeamId]
+      );
     }
 
     let soldAtSql = "NULL";
@@ -672,13 +752,19 @@ router.patch("/:playerId/correction", authMiddleware, requireRole("AUCTION_ADMIN
       if (newPrice <= 0) throw new Error("sold_price must be greater than zero when status is SOLD");
 
       const [[team]] = await conn.query(
-        `SELECT id, remaining_purse FROM teams WHERE id = ? AND auction_id = ? FOR UPDATE`,
+        `SELECT id, remaining_purse, balance_purse FROM teams WHERE id = ? AND auction_id = ? FOR UPDATE`,
         [newTeamId, player.auction_id]
       );
       if (!team) throw new Error("Selected team not found in this auction");
       if (Number(team.remaining_purse || 0) < newPrice) throw new Error("Selected team does not have enough remaining purse");
 
-      await conn.query(`UPDATE teams SET remaining_purse = remaining_purse - ? WHERE id = ?`, [newPrice, newTeamId]);
+      await conn.query(
+        `UPDATE teams 
+         SET remaining_purse = remaining_purse - ?,
+             balance_purse = COALESCE(balance_purse, remaining_purse) - ?
+         WHERE id = ?`,
+        [newPrice, newPrice, newTeamId]
+      );
       soldAtSql = "COALESCE(sold_at, NOW())";
     } else if (newStatus === "UNSOLD") {
       lastUnsoldAtSql = "NOW()";
@@ -693,6 +779,7 @@ router.patch("/:playerId/correction", authMiddleware, requireRole("AUCTION_ADMIN
        SET status = ?,
            sold_team_id = ?,
            sold_price = ?,
+           sold_amount = ?,
            sold_at = ${soldAtSql},
            auction_round = ?,
            unsold_count = COALESCE(unsold_count, 0) + ?,
@@ -707,6 +794,7 @@ router.patch("/:playerId/correction", authMiddleware, requireRole("AUCTION_ADMIN
         newStatus,
         newStatus === "SOLD" ? newTeamId : null,
         newStatus === "SOLD" ? newPrice : 0,
+        newStatus === "SOLD" ? newPrice : 0,
         newRound,
         unsoldIncrement,
         clean(category),
@@ -716,6 +804,36 @@ router.patch("/:playerId/correction", authMiddleware, requireRole("AUCTION_ADMIN
         playerId,
       ]
     );
+
+    // Keep auction_state in sync if this player is currently active in state
+    const [[currentState]] = await conn.query(
+      `SELECT current_player_id, state FROM auction_state WHERE auction_id = ?`,
+      [player.auction_id]
+    );
+    if (currentState && Number(currentState.current_player_id) === playerId) {
+      if (newStatus === "SOLD") {
+        await conn.query(
+          `UPDATE auction_state 
+           SET highest_team_id = ?, current_bid = ?, state = 'SOLD', updated_at = NOW() 
+           WHERE auction_id = ?`,
+          [newTeamId, newPrice, player.auction_id]
+        );
+      } else if (newStatus === "UNSOLD" || newStatus === "FINAL_UNSOLD") {
+        await conn.query(
+          `UPDATE auction_state 
+           SET highest_team_id = NULL, state = ?, updated_at = NOW() 
+           WHERE auction_id = ?`,
+          [newStatus, player.auction_id]
+        );
+      } else {
+        await conn.query(
+          `UPDATE auction_state 
+           SET highest_team_id = NULL, current_bid = ?, state = 'PLAYER_ACTIVE', updated_at = NOW() 
+           WHERE auction_id = ?`,
+          [player.base_price || 0, player.auction_id]
+        );
+      }
+    }
 
     const [[updated]] = await conn.query(`SELECT * FROM players WHERE id = ?`, [playerId]);
 
@@ -761,6 +879,18 @@ router.patch("/:playerId/correction", authMiddleware, requireRole("AUCTION_ADMIN
     );
 
     await conn.commit();
+
+    cache.invalidate(player.auction_id);
+    try {
+      const liveRoutes = require("./live.routes");
+      if (liveRoutes.loadSnapshot) {
+        const snapshot = await liveRoutes.loadSnapshot(player.auction_id);
+        emitAuctionSnapshot(player.auction_id, snapshot, "auctionSnapshotUpdated");
+      }
+    } catch (e) {
+      console.error("Failed to emit auction snapshot after player correction", e);
+    }
+
     res.json({ message: "Player correction saved", player: updated });
   } catch (error) {
     await conn.rollback();

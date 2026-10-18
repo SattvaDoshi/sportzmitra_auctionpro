@@ -321,12 +321,36 @@ router.post(
     try {
       const auctionId = Number(req.params.auctionId);
 
+      const [[currentActive]] = await pool.query(
+        `SELECT s.current_player_id, s.current_bid, s.highest_team_id,
+                p.id, p.id AS player_id, p.player_name, p.serial_number, p.photo_url, p.category, p.player_role, p.age, p.area,
+                t.team_name, t.logo_url AS team_logo_url
+         FROM auction_state s
+         LEFT JOIN players p ON s.current_player_id = p.id
+         LEFT JOIN teams t ON s.highest_team_id = t.id
+         WHERE s.auction_id = ?`,
+        [auctionId]
+      );
+
       await callSnapshotProcedure("CALL sp_mark_player_sold(?, ?)", [auctionId, req.user.userId]);
       const next = await autoSelectNextIfRandom(auctionId, req.user.userId);
       const snapshot = await loadSnapshot(auctionId);
 
       cache.invalidate(auctionId);
-      emitAuctionSnapshot(auctionId, { ...snapshot, next }, "playerSold");
+      emitAuctionSnapshot(
+        auctionId,
+        {
+          ...snapshot,
+          auctionId,
+          player: currentActive || null,
+          sold_player: currentActive || null,
+          team_name: currentActive?.team_name || "",
+          team_logo_url: currentActive?.team_logo_url || "",
+          sold_amount: currentActive?.current_bid || 0,
+          next,
+        },
+        "playerSold"
+      );
       emitAuctionSnapshot(auctionId, snapshot);
 
       res.json({ message: next.autoSelected ? "Player sold. Next random player selected." : "Player sold", snapshot, state: snapshot.state, next });
@@ -347,12 +371,31 @@ router.post(
     try {
       const auctionId = Number(req.params.auctionId);
 
+      const [[currentActive]] = await pool.query(
+        `SELECT s.current_player_id,
+                p.id, p.id AS player_id, p.player_name, p.serial_number, p.photo_url, p.category, p.player_role, p.age, p.area
+         FROM auction_state s
+         LEFT JOIN players p ON s.current_player_id = p.id
+         WHERE s.auction_id = ?`,
+        [auctionId]
+      );
+
       await callSnapshotProcedure("CALL sp_mark_player_unsold(?, ?)", [auctionId, req.user.userId]);
       const next = await autoSelectNextIfRandom(auctionId, req.user.userId);
       const snapshot = await loadSnapshot(auctionId);
 
       cache.invalidate(auctionId);
-      emitAuctionSnapshot(auctionId, { ...snapshot, next }, "playerUnsold");
+      emitAuctionSnapshot(
+        auctionId,
+        {
+          ...snapshot,
+          auctionId,
+          player: currentActive || null,
+          unsold_player: currentActive || null,
+          next,
+        },
+        "playerUnsold"
+      );
       emitAuctionSnapshot(auctionId, snapshot);
 
       res.json({ message: next.autoSelected ? "Player marked unsold. Next random player selected." : "Player marked unsold", snapshot, state: snapshot.state, next });
@@ -432,7 +475,7 @@ router.post(
       await conn.commit();
       const next = await autoSelectNextIfRandom(auctionId, req.user.userId);
       const snapshot = await loadSnapshot(auctionId);
-      emitAuctionSnapshot(auctionId, { ...snapshot, next }, "playerFinalUnsold");
+      emitAuctionSnapshot(auctionId, { ...snapshot, player, unsold_player: player, next }, "playerFinalUnsold");
       emitAuctionSnapshot(auctionId, snapshot);
       res.json({ message: next.autoSelected ? "Player marked final unsold. Next random player selected." : "Player marked final unsold", snapshot, state: snapshot.state, next });
     } catch (error) {
@@ -866,50 +909,71 @@ router.post(
       if (!player) throw new Error("Player not found in this auction");
       if (player.status !== "SOLD") throw new Error("Only SOLD players can be corrected");
 
-      // 2. Load new team
-      const [[newTeam]] = await conn.query(
-        `SELECT id, team_name, remaining_purse FROM teams
-         WHERE id = ? AND auction_id = ? AND status = 'ACTIVE' FOR UPDATE`,
-        [new_team_id, auctionId]
-      );
-      if (!newTeam) throw new Error("Target team not found");
-
-      const oldTeamId = player.sold_team_id;
+      const oldTeamId = player.sold_team_id ? Number(player.sold_team_id) : null;
       const oldPrice = Number(player.sold_price || 0);
       const correctedPrice = Number(new_price);
+      const targetTeamId = Number(new_team_id);
 
-      // 3. Reverse old team purse (restore what was spent)
+      // 2. Reverse old team purse (restore what was spent, updating both remaining_purse and balance_purse)
       if (oldTeamId) {
         await conn.query(
-          `UPDATE teams SET remaining_purse = remaining_purse + ? WHERE id = ? AND auction_id = ?`,
-          [oldPrice, oldTeamId, auctionId]
+          `UPDATE teams 
+           SET remaining_purse = remaining_purse + ?,
+               balance_purse = COALESCE(balance_purse, remaining_purse) + ?
+           WHERE id = ? AND auction_id = ?`,
+          [oldPrice, oldPrice, oldTeamId, auctionId]
         );
       }
+
+      // 3. Load target team AFTER restoring old purse (crucial if same team is being corrected)
+      const [[newTeam]] = await conn.query(
+        `SELECT id, team_name, remaining_purse, balance_purse FROM teams
+         WHERE id = ? AND auction_id = ? AND status = 'ACTIVE' FOR UPDATE`,
+        [targetTeamId, auctionId]
+      );
+      if (!newTeam) throw new Error("Target team not found");
 
       // 4. Validate new team has enough purse
       const newPurseAfter = Number(newTeam.remaining_purse) - correctedPrice;
       if (newPurseAfter < 0) throw new Error("New team does not have enough purse for this correction");
 
-      // 5. Deduct from new team
+      // 5. Deduct from new team (updating both remaining_purse and balance_purse)
       await conn.query(
-        `UPDATE teams SET remaining_purse = remaining_purse - ? WHERE id = ? AND auction_id = ?`,
-        [correctedPrice, new_team_id, auctionId]
+        `UPDATE teams 
+         SET remaining_purse = remaining_purse - ?,
+             balance_purse = COALESCE(balance_purse, remaining_purse) - ?
+         WHERE id = ? AND auction_id = ?`,
+        [correctedPrice, correctedPrice, targetTeamId, auctionId]
       );
 
       // 6. Update player
       await conn.query(
         `UPDATE players SET sold_team_id = ?, sold_price = ?, sold_amount = ? WHERE id = ?`,
-        [new_team_id, correctedPrice, correctedPrice, player_id]
+        [targetTeamId, correctedPrice, correctedPrice, player_id]
       );
 
-      // 7. Audit log
+      // 7. Update auction_state if this player is currently active in state
+      const [[currentState]] = await conn.query(
+        `SELECT current_player_id FROM auction_state WHERE auction_id = ?`,
+        [auctionId]
+      );
+      if (currentState && Number(currentState.current_player_id) === Number(player_id)) {
+        await conn.query(
+          `UPDATE auction_state 
+           SET highest_team_id = ?, current_bid = ?, updated_at = NOW() 
+           WHERE auction_id = ?`,
+          [targetTeamId, correctedPrice, auctionId]
+        );
+      }
+
+      // 8. Audit log
       const oldData = JSON.stringify({ team_id: oldTeamId, price: oldPrice });
-      const newData = JSON.stringify({ team_id: new_team_id, price: correctedPrice });
+      const newData = JSON.stringify({ team_id: targetTeamId, price: correctedPrice });
       await conn.query(
         `INSERT INTO auction_action_logs
            (auction_id, player_id, team_id, action_type, old_data, new_data, performed_by_user_id, reason)
          VALUES (?, ?, ?, 'CORRECTION', ?, ?, ?, ?)`,
-        [auctionId, player_id, new_team_id, oldData, newData, req.user.userId, reason || "Manual correction"]
+        [auctionId, player_id, targetTeamId, oldData, newData, req.user.userId, reason || "Manual correction"]
       );
 
       await conn.commit();
@@ -927,4 +991,5 @@ router.post(
   }
 );
 
+router.loadSnapshot = loadSnapshot;
 module.exports = router;

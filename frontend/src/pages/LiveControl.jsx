@@ -12,7 +12,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { io } from "socket.io-client";
 import AdminLayout from "../components/layout/AdminLayout";
@@ -98,7 +98,7 @@ function balanceOf(team) {
   );
 }
 
-function CelebrationOverlay({ celebration }) {
+function CelebrationOverlay({ celebration, onClose }) {
   if (!celebration) return null;
 
   const isSold = celebration.type === "SOLD";
@@ -106,8 +106,13 @@ function CelebrationOverlay({ celebration }) {
   const amount = celebration.amount;
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/80 backdrop-blur-md">
-      <div className="absolute inset-0 overflow-hidden">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget && onClose) onClose();
+      }}
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/80 backdrop-blur-md"
+    >
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
         {Array.from({ length: 28 }).map((_, index) => (
           <span
             key={index}
@@ -121,12 +126,22 @@ function CelebrationOverlay({ celebration }) {
       </div>
 
       <div
-        className={`celebration-pop max-w-[92vw] rounded-3xl border-8 p-8 text-center shadow-2xl backdrop-blur-xl ${
+        className={`celebration-pop relative max-w-[92vw] rounded-3xl border-8 p-8 text-center shadow-2xl backdrop-blur-xl ${
           isSold
             ? "border-green-600 bg-white text-slate-900 shadow-green-500/30"
             : "border-red-600 bg-white text-slate-900 shadow-red-500/30"
         }`}
       >
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="absolute right-3 top-3 z-30 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-slate-100 text-slate-600 transition hover:bg-slate-200 hover:text-slate-900 active:scale-95"
+          >
+            <X size={18} />
+          </button>
+        )}
         <div
           className={`text-[clamp(56px,10vw,140px)] font-black uppercase leading-none tracking-wider ${
             isSold ? "text-green-600" : "text-red-600"
@@ -193,6 +208,20 @@ export default function LiveControl() {
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [celebration, setCelebration] = useState(null);
+  const celebrationTimer = useRef(null);
+
+  const closeCelebration = useCallback(() => {
+    clearTimeout(celebrationTimer.current);
+    setCelebration(null);
+  }, []);
+
+  const triggerCelebration = useCallback((data, durationMs = 5000) => {
+    clearTimeout(celebrationTimer.current);
+    setCelebration(data);
+    celebrationTimer.current = setTimeout(() => setCelebration(null), durationMs);
+  }, []);
+
+  useEffect(() => () => clearTimeout(celebrationTimer.current), []);
   const [recentTeams, setRecentTeams] = useState([]);
   // Audit + Correction
   const [auditLog, setAuditLog] = useState([]);
@@ -253,7 +282,7 @@ export default function LiveControl() {
 
     const handleSold = (payload) => {
       setState((prev) => {
-        setCelebration({
+        triggerCelebration({
           type: "SOLD",
           teamName:
             payload?.team_name ||
@@ -262,17 +291,15 @@ export default function LiveControl() {
             prev?.highest_team_name ||
             "",
           amount: payload?.sold_amount || payload?.bid_amount || prev?.current_bid || bid,
-        });
+        }, 5000);
         return payload?.state || prev;
       });
-      setTimeout(() => setCelebration(null), 2200);
       clearSelectedTeam();
       applySnapshot(payload);
     };
 
     const handleUnsold = (payload) => {
-      setCelebration({ type: "UNSOLD" });
-      setTimeout(() => setCelebration(null), 1800);
+      triggerCelebration({ type: "UNSOLD" }, 4000);
       clearSelectedTeam();
       applySnapshot(payload);
     };
@@ -343,8 +370,7 @@ export default function LiveControl() {
       const response = await fn();
 
       if (options.celebration) {
-        setCelebration(options.celebration);
-        setTimeout(() => setCelebration(null), options.celebration.type === "SOLD" ? 2200 : 1800);
+        triggerCelebration(options.celebration, options.celebration.type === "SOLD" ? 5000 : 4000);
       }
 
       if (response?.data?.snapshot) {
@@ -547,7 +573,7 @@ export default function LiveControl() {
       publicSlug={auction?.public_slug}
        fullscreen
     >
-      <CelebrationOverlay celebration={celebration} />
+      <CelebrationOverlay celebration={celebration} onClose={closeCelebration} />
 
       <div className="mx-auto max-w-7xl font-sans text-slate-800 p-3 md:p-6 bg-slate-50 min-h-screen">
         

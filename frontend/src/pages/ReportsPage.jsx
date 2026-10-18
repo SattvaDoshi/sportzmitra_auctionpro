@@ -5,6 +5,7 @@ import AdminLayout from "../components/layout/AdminLayout";
 import api from "../api/api";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import * as XLSX from "xlsx";
 
 import {
   Users,
@@ -12,6 +13,7 @@ import {
   UserX,
   IndianRupee,
   Download,
+  FileSpreadsheet,
   ChevronDown,
   Crown,
   Medal,
@@ -1214,27 +1216,160 @@ const TABS = [
    Main Page
    --------------------------------------------------------- */
 
-function exportToCsv(players, auctionName) {
-  const rows = [
-    ["Player", "Category", "Role", "Base Price", "Status", "Sold To", "Sold Price"],
-    ...players.map((p) => [
-      p.player_name,
-      p.category || "-",
-      p.player_role || "-",
-      p.base_price || 0,
-      p.status,
-      p.sold_team_name || "-",
-      p.sold_price || 0,
-    ]),
+function cleanPlayerInfo(info) {
+  if (!info) return "";
+  let text = String(info);
+  text = text.replace(/<li[^>]*>/gi, "• ");
+  text = text.replace(/<\/li>/gi, "\n");
+  text = text.replace(/<br\s*\/?>/gi, "\n");
+  text = text.replace(/<\/p>/gi, "\n");
+  text = text.replace(/<\/h[1-6]>/gi, "\n");
+  text = text.replace(/<[^>]*>/g, "");
+  text = text
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+  return text.replace(/\n\s*\n/g, "\n").trim();
+}
+
+function sortPlayersTeamWise(playersList) {
+  return [...playersList].sort((a, b) => {
+    const teamA = String(a.sold_team_name || a.team_name || "").trim();
+    const teamB = String(b.sold_team_name || b.team_name || "").trim();
+
+    const isSoldA = a.status === "SOLD" && Boolean(teamA);
+    const isSoldB = b.status === "SOLD" && Boolean(teamB);
+
+    // 1. Sold players assigned to teams come first
+    if (isSoldA && !isSoldB) return -1;
+    if (!isSoldA && isSoldB) return 1;
+
+    // 2. If both have teams, sort alphabetically by team name
+    if (isSoldA && isSoldB) {
+      const teamComp = teamA.localeCompare(teamB, undefined, { sensitivity: "base" });
+      if (teamComp !== 0) return teamComp;
+    }
+
+    // 3. If neither is sold to a team, sort by status
+    if (!isSoldA && !isSoldB) {
+      const statusComp = String(a.status || "").localeCompare(String(b.status || ""));
+      if (statusComp !== 0) return statusComp;
+    }
+
+    // 4. Within same team (or same status), sort by Serial Number
+    const rawSerialA = a.serial_number !== null && a.serial_number !== undefined ? String(a.serial_number).trim() : "";
+    const rawSerialB = b.serial_number !== null && b.serial_number !== undefined ? String(b.serial_number).trim() : "";
+    const numA = Number(rawSerialA);
+    const numB = Number(rawSerialB);
+    const isNumA = rawSerialA !== "" && !isNaN(numA);
+    const isNumB = rawSerialB !== "" && !isNaN(numB);
+
+    if (isNumA && isNumB) {
+      if (numA !== numB) return numA - numB;
+    } else if (isNumA && !isNumB) {
+      return -1;
+    } else if (!isNumA && isNumB) {
+      return 1;
+    } else if (rawSerialA && rawSerialB) {
+      const serialComp = rawSerialA.localeCompare(rawSerialB, undefined, { numeric: true, sensitivity: "base" });
+      if (serialComp !== 0) return serialComp;
+    }
+
+    // 5. Fallback to Player Name (A-Z)
+    return String(a.player_name || "").localeCompare(String(b.player_name || ""), undefined, { sensitivity: "base" });
+  });
+}
+
+function exportToExcel(players, auctionName, teams = []) {
+  const sortedPlayers = sortPlayersTeamWise(players);
+
+  const exportData = sortedPlayers.map((p, index) => {
+    const isSold = p.status === "SOLD";
+    const teamDisplay = p.sold_team_name || p.team_name || (["UNSOLD", "FINAL_UNSOLD"].includes(p.status) ? "Unsold" : "-");
+
+    return {
+      "S.No": index + 1,
+      "Team": teamDisplay,
+      "Serial No": p.serial_number !== null && p.serial_number !== undefined && String(p.serial_number).trim() !== "" ? String(p.serial_number) : "-",
+      "Player Name": p.player_name || "-",
+      "Role": p.player_role || "-",
+      "Category": p.category || "-",
+      "T-Shirt Size": p.tshirt_size || "-",
+      "Mobile Number": p.player_mobile ? String(p.player_mobile) : "-",
+      "Email": p.player_email || "-",
+      "Age": p.age ?? "-",
+      "Area": p.area || "-",
+      "Base Price (₹)": Number(p.base_price || 0),
+      "Sold Price (₹)": isSold ? Number(p.sold_price || 0) : 0,
+      "Status": p.status || "-",
+      "Player Info": cleanPlayerInfo(p.player_info) || "-",
+      "Photo URL": p.photo_url || "-",
+    };
+  });
+
+  const wb = XLSX.utils.book_new();
+
+  // Sheet 1: Players (Team Wise)
+  const wsPlayers = XLSX.utils.json_to_sheet(exportData);
+  wsPlayers["!cols"] = [
+    { wch: 6 },  // S.No
+    { wch: 24 }, // Team
+    { wch: 12 }, // Serial No
+    { wch: 25 }, // Player Name
+    { wch: 18 }, // Role
+    { wch: 14 }, // Category
+    { wch: 14 }, // T-Shirt Size
+    { wch: 16 }, // Mobile Number
+    { wch: 26 }, // Email
+    { wch: 8 },  // Age
+    { wch: 18 }, // Area
+    { wch: 15 }, // Base Price (₹)
+    { wch: 15 }, // Sold Price (₹)
+    { wch: 14 }, // Status
+    { wch: 32 }, // Player Info
+    { wch: 36 }, // Photo URL
   ];
-  const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${auctionName || "report"}-players.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  XLSX.utils.book_append_sheet(wb, wsPlayers, "Players (Team Wise)");
+
+  // Sheet 2: Team Summary (if teams data exists)
+  if (teams && teams.length > 0) {
+    const sortedTeams = [...teams].sort((a, b) =>
+      String(a.team_name || "").localeCompare(String(b.team_name || ""), undefined, { sensitivity: "base" })
+    );
+
+    const teamsData = sortedTeams.map((t, index) => ({
+      "S.No": index + 1,
+      "Team Name": t.team_name || "-",
+      "Short Name": t.short_name || "-",
+      "Total Purse (₹)": Number(t.total_purse || 0),
+      "Total Spent (₹)": Number(t.total_spent || t.used_purse || 0),
+      "Remaining Purse (₹)": Number(t.remaining_purse || 0),
+      "Players Bought": Number(t.players_bought || 0),
+    }));
+
+    const wsTeams = XLSX.utils.json_to_sheet(teamsData);
+    wsTeams["!cols"] = [
+      { wch: 6 },  // S.No
+      { wch: 26 }, // Team Name
+      { wch: 12 }, // Short Name
+      { wch: 18 }, // Total Purse (₹)
+      { wch: 18 }, // Total Spent (₹)
+      { wch: 18 }, // Remaining Purse (₹)
+      { wch: 16 }, // Players Bought
+    ];
+    XLSX.utils.book_append_sheet(wb, wsTeams, "Team Summary");
+  }
+
+  const safeAuctionName = (auctionName || "Auction")
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "_");
+  const filename = `${safeAuctionName}_players_report.xlsx`;
+
+  XLSX.writeFile(wb, filename);
 }
 
 export default function ReportsPage() {
@@ -1337,10 +1472,10 @@ export default function ReportsPage() {
                   background: `linear-gradient(135deg, ${theme.rose}, #C93070)`,
                   boxShadow: `0 2px 8px ${theme.rose}40`,
                 }}
-                onClick={() => exportToCsv(players, auctionName)}
+                onClick={() => exportToExcel(enrichedPlayers, auctionName, reportTeams)}
               >
-                <Download className="h-4 w-4" />
-                Export CSV
+                <FileSpreadsheet className="h-4 w-4" />
+                Export Excel
               </button>
             </div>
           </div>

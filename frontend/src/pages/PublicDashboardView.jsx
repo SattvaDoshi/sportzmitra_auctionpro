@@ -179,6 +179,27 @@ export default function PublicDashboardView() {
     );
   }, [data, search]);
 
+  const heroState = useMemo(() => {
+    if (!data?.state) return null;
+    let serial = data.state.serial_number ?? data.state.serial_no ?? data.state.serial;
+    if (!serial && (data.state.current_player_id || data.state.player_name)) {
+      const allPlayers = [
+        ...(data.pendingPlayers || []),
+        ...(data.soldPlayers || []),
+        ...(data.unsoldPlayers || []),
+      ];
+      const match = allPlayers.find(
+        (p) =>
+          (data.state.current_player_id && p.id === data.state.current_player_id) ||
+          (data.state.player_name && p.player_name === data.state.player_name)
+      );
+      if (match?.serial_number) {
+        serial = match.serial_number;
+      }
+    }
+    return serial ? { ...data.state, serial_number: serial } : data.state;
+  }, [data?.state, data?.pendingPlayers, data?.soldPlayers, data?.unsoldPlayers]);
+
   if (error) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 p-6 text-center font-sans">
@@ -220,7 +241,7 @@ export default function PublicDashboardView() {
       <div className="mx-auto max-w-7xl">
         <AuctionHero
           auction={auction}
-          state={data.state}
+          state={heroState}
           dashboardSummary={dashboardSummary}
           viewerCount={viewerCount}
           publicSlug={publicSlug}
