@@ -306,7 +306,7 @@ const PANEL =
 const INNER = "rounded-xl border border-sky-400/40 bg-[#041533]/70";
 const GOLD_TEXT =
   "bg-gradient-to-b from-[#fff3a8] via-[#ffc928] to-[#f08a00] bg-clip-text text-transparent";
-const BLUE_TEXT = "bg-gradient-to-b from-[#8ccaff] to-[#1f6bff] bg-clip-text text-transparent";
+const BLUE_TEXT = "bg-gradient-to-b from-[#ffff] to-[#ffff] bg-clip-text text-transparent";
 
 /* ---------------------------------------------------------------------------
    FIREWORKS + CONFETTI (canvas, no dependencies)

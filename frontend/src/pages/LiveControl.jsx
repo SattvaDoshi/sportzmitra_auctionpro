@@ -565,9 +565,9 @@ export default function LiveControl() {
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="rounded-xl border border-[#8CC63F]/40 bg-[#8CC63F]/10 px-4 py-2 text-xs font-extrabold uppercase tracking-wider text-slate-900">
+              {/* <div className="rounded-xl border border-[#8CC63F]/40 bg-[#8CC63F]/10 px-4 py-2 text-xs font-extrabold uppercase tracking-wider text-slate-900">
                 Viewers: {snapshot?.viewerCount || 0}
-              </div>
+              </div> */}
               <button
                 onClick={load}
                 className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-extrabold uppercase tracking-wider text-slate-700 transition-all hover:bg-slate-50 shadow-sm"
@@ -871,75 +871,15 @@ export default function LiveControl() {
               </p>
             </div>
 
-            {/* Selected Team Card */}
-            <div className="rounded-xl border border-[#8CC63F]/40 bg-[#8CC63F]/10 p-3.5">
-              <div className="text-[10px] font-black uppercase tracking-widest text-slate-800">
-                Currently Bidding Team
-              </div>
-
-              {selectedTeam ? (() => {
-                const tmb = maxBidMap[selectedTeam.id];
-                const maxBidVal = tmb?.max_bid ?? null;
-                const isBidOver = maxBidVal !== null && Number(bid || 0) > maxBidVal;
-                return (
-                  <div className="mt-2.5">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-12 shrink-0 items-center justify-center rounded-lg bg-[#8CC63F] text-xs font-black text-slate-950">
-                        {teamInitials(selectedTeam)}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-base font-black uppercase text-slate-900">
-                          {selectedTeam.team_name}
-                        </div>
-                        <div className="text-xs font-black text-[#E5007D]">
-                          Balance: ₹{formatAmount(balanceOf(selectedTeam))}
-                        </div>
-                      </div>
-                    </div>
-                    {maxBidVal !== null && (
-                      <div className={`mt-2.5 flex items-center justify-between rounded-lg px-3 py-2 text-xs font-black ${
-                        isBidOver
-                          ? "bg-red-100 border border-red-300 text-red-700"
-                          : maxBidVal === 0
-                          ? "bg-orange-100 border border-orange-300 text-orange-700"
-                          : "bg-slate-100 border border-slate-200 text-slate-700"
-                      }`}>
-                        <span className="uppercase tracking-wider">Max Bid</span>
-                        <span className={`text-sm font-black ${
-                          isBidOver ? "text-red-600" : maxBidVal === 0 ? "text-orange-600" : "text-emerald-600"
-                        }`}>
-                          {maxBidVal === 0 ? "LOCKED" : `₹${formatAmount(maxBidVal)}`}
-                        </span>
-                      </div>
-                    )}
-                    {isBidOver && (
-                      <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-red-600">
-                        ⚠ Current bid exceeds this team's max allowable bid!
-                      </div>
-                    )}
-                    {maxBidVal === 0 && !isBidOver && (
-                      <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-orange-600">
-                        ⚠ Team has no bidding capacity — purse reserved for remaining slots
-                      </div>
-                    )}
-                  </div>
-                );
-              })() : (
-                <div className="mt-1.5 text-xs font-semibold text-slate-500">
-                  No team selected yet
-                </div>
-              )}
-            </div>
-
-            {/* Search Team */}
-            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            {/* Search Team (moved to top) */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
               {recentTeams.length > 0 && (
                 <div className="mb-3">
                   <div className="mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
                     Recent Teams
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {recentTeams.map(rt => (
+                    {recentTeams.map((rt) => (
                       <button
                         key={rt.id}
                         onClick={() => selectTeam(rt)}
@@ -968,7 +908,7 @@ export default function LiveControl() {
               </div>
             </div>
 
-            {/* Teams List */}
+            {/* Teams List / Franchises Pool (moved up) */}
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
               <div className="mb-2 px-1 text-[10px] font-black uppercase tracking-widest text-slate-500">
                 Franchises Pool
