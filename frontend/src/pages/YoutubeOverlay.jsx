@@ -110,7 +110,7 @@ function TeamStat({ label, value, color, icon }) {
         {label}
       </p>
       <p className="truncate font-black tabular-nums" style={{ fontSize: cq(1.1), marginTop: cq(0.15), color }}>
-        ₹{formatAmount(value)}
+        {formatAmount(value)}
       </p>
     </div>
   );
@@ -166,7 +166,7 @@ function TeamSlideMobile({ team, metrics }) {
           <div key={label} className="min-w-0 px-1">
             <p className="text-[7px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
             <p className="truncate text-[10px] font-black tabular-nums" style={{ color }}>
-              ₹{formatAmount(value)}
+              {formatAmount(value)}
             </p>
           </div>
         ))}
@@ -363,8 +363,8 @@ export default function YoutubeOverlay() {
 
               {/* Player Stats */}
               <div className="flex shrink-0 items-center" style={{ gap: cq(2.4) }}>
-                <StatBlock label="Base Price" value={`₹${formatAmount(player.basePrice)}`} color="text-[#e91e63]" />
-                <StatBlock label="Current Bid" value={`₹${formatAmount(player.currentBid)}`} color="text-[#00a844]" />
+                <StatBlock label="Base Price" value={`${formatAmount(player.basePrice)}`} color="text-[#e91e63]" />
+                <StatBlock label="Current Bid" value={`${formatAmount(player.currentBid)}`} color="text-[#00a844]" />
               </div>
             </div>
 
@@ -413,8 +413,8 @@ export default function YoutubeOverlay() {
           </div>
 
           <div className="grid grid-cols-2 divide-x divide-[#e91e63]/10 border-t border-[#e91e63]/10 bg-white text-center">
-            <StatBlockMobile label="Base Price" value={`₹ ${formatAmount(player.basePrice)}`} />
-            <StatBlockMobile label="Current Bid" value={`₹ ${formatAmount(player.currentBid)}`} accent />
+            <StatBlockMobile label="Base Price" value={`${formatAmount(player.basePrice)}`} />
+            <StatBlockMobile label="Current Bid" value={`${formatAmount(player.currentBid)}`} accent />
           </div>
 
           {/* Rotating team overview */}

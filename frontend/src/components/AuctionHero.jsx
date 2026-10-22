@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Eye, Gavel } from "lucide-react";
+import { Eye, Gavel, Trophy } from "lucide-react";
 import { getImageUrl } from "../utils/imageUrl";
 
 const money = (v) => Number(v || 0).toLocaleString("en-IN");
@@ -194,7 +194,7 @@ function StatsBar({ stats = [], html }) {
 }
 
 /* ---------- main export ---------- */
-export default function AuctionHero({ auction, state, viewerCount = 0 }) {
+export default function AuctionHero({ auction, state, dashboardSummary = {}, viewerCount = 0 }) {
   const basePrice = Number(state?.base_price || 0);
   const currentBid = Number(state?.current_bid || basePrice || 0);
   const hasPlayer = !!state?.player_name;
@@ -208,6 +208,13 @@ export default function AuctionHero({ auction, state, viewerCount = 0 }) {
   const roundNo = state?.round_number ?? state?.round_no ?? state?.round;
 
   const category = state?.category ? String(state.category).trim() : "";
+
+  const pendingCount = dashboardSummary?.pending_players ?? 0;
+  const totalCount = dashboardSummary?.total_players ?? 0;
+  const isAuctionCompleted =
+    state?.state === "COMPLETED" ||
+    auction?.status === "COMPLETED" ||
+    (totalCount > 0 && pendingCount === 0 && (!state?.current_player_id || ["SOLD", "UNSOLD", "FINAL_UNSOLD", "COMPLETED"].includes(state?.state)));
 
   const playerInfoHtml = state?.player_info;
   const { hasContent: hasStats, stats } = useMemo(() => parsePlayerInfo(playerInfoHtml), [playerInfoHtml]);
@@ -342,60 +349,88 @@ export default function AuctionHero({ auction, state, viewerCount = 0 }) {
           </p>
         </header>
 
-        {/* Compact player card */}
-        <section className="mt-2.5 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#3a1238] to-[#220a21] p-2.5 text-white shadow-xl">
-          {/* Round */}
-          <div className="px-0.5 text-[10px] font-bold uppercase tracking-wider text-white/70">
-            {roundNo ? <>Round {roundNo} <span className="mx-1 text-white/30">|</span></> : null}
-            Current Player
-          </div>
-
-          <div className="mt-2 flex gap-3">
-            <MobilePlayerPhoto url={state?.photo_url} name={state?.player_name} />
-
-            <div className="flex min-w-0 flex-1 flex-col justify-between gap-1.5">
-              {/* Name + role and category side by side */}
-              <div className="min-w-0">
-                <h2 className="break-words text-[17px] font-black uppercase leading-tight text-white">
-                  {hasPlayer ? (
-                    <>
-                      {showSerial ? <span className="mr-1.5 text-[#ff7cc6]">{serialNo} -</span> : null}
-                      {playerName}
-                    </>
-                  ) : (
-                    "Waiting for player..."
-                  )}
-                  {jersey ? <span className="ml-1.5 text-[#ff1f9f]">{jersey}</span> : null}
-                </h2>
-                <RoleCategory role={role} category={category} />
+        {/* Compact player card or Auction Completed banner */}
+        {isAuctionCompleted ? (
+          <section className="mt-2.5 overflow-hidden rounded-2xl border border-amber-400/40 bg-gradient-to-br from-[#3a1238] via-[#220a21] to-[#160615] p-4 text-white shadow-xl text-center">
+            <div className="mx-auto inline-flex items-center justify-center rounded-xl bg-amber-400/10 p-2.5 text-amber-400 border border-amber-400/30">
+              <Trophy className="h-7 w-7 animate-pulse" />
+            </div>
+            <h2 className="aa-display mt-2 text-2xl uppercase tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-amber-300 to-yellow-200">
+              Auction Completed
+            </h2>
+            <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/70">
+              All players have been auctioned
+            </p>
+            <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
+              <div className="rounded-lg bg-white/5 p-2">
+                <div className="text-[8px] font-black uppercase text-white/60">Players</div>
+                <div className="text-sm font-black text-white">{totalCount}</div>
               </div>
+              <div className="rounded-lg bg-white/5 p-2">
+                <div className="text-[8px] font-black uppercase text-[#8DC63F]">Sold</div>
+                <div className="text-sm font-black text-[#8DC63F]">{dashboardSummary?.sold_players ?? 0}</div>
+              </div>
+              <div className="rounded-lg bg-white/5 p-2">
+                <div className="text-[8px] font-black uppercase text-rose-400">Unsold</div>
+                <div className="text-sm font-black text-rose-400">{dashboardSummary?.unsold_players ?? 0}</div>
+              </div>
+            </div>
+          </section>
+        ) : (
+          <section className="mt-2.5 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#3a1238] to-[#220a21] p-2.5 text-white shadow-xl">
+            {/* Round */}
+            <div className="px-0.5 text-[10px] font-bold uppercase tracking-wider text-white/70">
+              {roundNo ? <>Round {roundNo} <span className="mx-1 text-white/30">|</span></> : null}
+              Current Player
+            </div>
 
-              {/* Bid points with base points as a small caption */}
-              <div className="flex items-end justify-between gap-2 rounded-xl bg-[#EC008C] px-3 py-1.5 shadow-md shadow-[#EC008C]/30">
+            <div className="mt-2 flex gap-3">
+              <MobilePlayerPhoto url={state?.photo_url} name={state?.player_name} />
+
+              <div className="flex min-w-0 flex-1 flex-col justify-between gap-1.5">
+                {/* Name + role and category side by side */}
                 <div className="min-w-0">
-                  <div className="text-[9px] font-black uppercase tracking-widest text-white/80">Bid Points</div>
-                  <div className="aa-display truncate text-[22px] leading-none">{money(currentBid)}</div>
+                  <h2 className="break-words text-[17px] font-black uppercase leading-tight text-white">
+                    {hasPlayer ? (
+                      <>
+                        {showSerial ? <span className="mr-1.5 text-[#ff7cc6]">{serialNo} -</span> : null}
+                        {playerName}
+                      </>
+                    ) : (
+                      "Waiting for player..."
+                    )}
+                    {jersey ? <span className="ml-1.5 text-[#ff1f9f]">{jersey}</span> : null}
+                  </h2>
+                  <RoleCategory role={role} category={category} />
                 </div>
-                <div className="shrink-0 pb-0.5 text-right">
-                  <div className="text-[8px] font-black uppercase tracking-widest text-white/70">Base Points</div>
-                  <div className="whitespace-nowrap text-[11px] font-black text-[#d6f58f]">{money(basePrice)}</div>
-                </div>
-              </div>
-            </div>
-          </div>
 
-          {/* Highest bid */}
-          {state?.highest_team_name && (
-            <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-white/5 px-2.5 py-1.5">
-              <div className="min-w-0 truncate text-[10px] font-semibold text-white/70">
-                Highest Bid: <span className="font-black text-[#8DC63F]">{state.highest_team_name}</span>
+                {/* Bid points with base points as a small caption */}
+                <div className="flex items-end justify-between gap-2 rounded-xl bg-[#EC008C] px-3 py-1.5 shadow-md shadow-[#EC008C]/30">
+                  <div className="min-w-0">
+                    <div className="text-[9px] font-black uppercase tracking-widest text-white/80">Bid Points</div>
+                    <div className="aa-display truncate text-[22px] leading-none">{money(currentBid)}</div>
+                  </div>
+                  <div className="shrink-0 pb-0.5 text-right">
+                    <div className="text-[8px] font-black uppercase tracking-widest text-white/70">Base Points</div>
+                    <div className="whitespace-nowrap text-[11px] font-black text-[#d6f58f]">{money(basePrice)}</div>
+                  </div>
+                </div>
               </div>
-              <span className="shrink-0 rounded bg-[#EC008C] px-1.5 py-0.5 text-[9px] font-black text-white">
-                {initials(state.highest_team_name)}
-              </span>
             </div>
-          )}
-        </section>
+
+            {/* Highest bid */}
+            {state?.highest_team_name && (
+              <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-white/5 px-2.5 py-1.5">
+                <div className="min-w-0 truncate text-[10px] font-semibold text-white/70">
+                  Highest Bid: <span className="font-black text-[#8DC63F]">{state.highest_team_name}</span>
+                </div>
+                <span className="shrink-0 rounded bg-[#EC008C] px-1.5 py-0.5 text-[9px] font-black text-white">
+                  {initials(state.highest_team_name)}
+                </span>
+              </div>
+            )}
+          </section>
+        )}
       </div>
 
       {/* =====================================================================
@@ -435,73 +470,109 @@ export default function AuctionHero({ auction, state, viewerCount = 0 }) {
         </div>
       </header>
 
-      <section className="mt-4 hidden md:block lg:hidden">
-        <div className="rounded-2xl border border-white/10 bg-[#2b0d29]/95 p-4 text-white shadow-2xl backdrop-blur-md lg:p-5">
-          <div className="text-xs font-bold uppercase tracking-wide text-white/90 lg:text-sm">
-            {roundNo ? (
-              <>
-                Round {roundNo} <span className="mx-1.5 text-white/40">|</span>
-              </>
-            ) : null}
-            <span className={roundNo ? "text-white/70" : ""}>Current Player</span>
-          </div>
-
-          <div className="mt-3 flex items-center gap-4 lg:mt-4 lg:gap-7">
-            <DesktopPlayerPhoto url={state?.photo_url} name={state?.player_name} />
-
-            <div className="min-w-0 flex-1">
-              <h2 className="aa-display break-words text-[clamp(26px,4vw,56px)] uppercase leading-none text-white">
-                {hasPlayer ? (
-                  <>
-                    {showSerial ? <span className="mr-2 text-[#ff7cc6]">{serialNo} -</span> : null}
-                    {playerName}
-                  </>
-                ) : (
-                  "Waiting for player..."
-                )}
-                {jersey ? <span className="ml-2 text-[#ff1f9f]">{jersey}</span> : null}
+      {isAuctionCompleted ? (
+        <section className="mt-4 hidden md:block">
+          <div className="rounded-2xl border border-amber-400/30 bg-gradient-to-r from-[#2b0d29]/95 via-[#1a0518]/95 to-[#2b0d29]/95 p-6 text-white shadow-2xl backdrop-blur-md">
+            <div className="flex flex-col items-center justify-center text-center">
+              <div className="inline-flex items-center justify-center rounded-2xl border border-amber-400/40 bg-amber-400/10 p-3 text-amber-400 shadow-[0_0_20px_rgba(251,191,36,0.3)]">
+                <Trophy className="h-10 w-10 animate-bounce" />
+              </div>
+              <h2 className="aa-display mt-3 text-[clamp(32px,4vw,56px)] uppercase leading-none tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-yellow-200 to-amber-400">
+                Auction Completed
               </h2>
-
-              {/* Role and category side by side */}
-              <RoleCategory role={role} category={category} size="lg" />
-
-              {/* Base | Bid */}
-              <div className="mt-3 grid max-w-xl grid-cols-[1fr_1.25fr] gap-3 lg:mt-4">
-                <div className="flex min-w-0 flex-col items-center justify-center rounded-xl bg-[#8DC63F] px-3 py-2 text-slate-900 shadow-md lg:py-3">
-                  <div className="text-[10px] font-black uppercase tracking-widest">Base Points</div>
-                  <div className="aa-display max-w-full truncate text-[clamp(20px,2.4vw,34px)] leading-tight">
-                    {money(basePrice)}
-                  </div>
+              <p className="mt-2 text-xs font-semibold uppercase tracking-widest text-white/80 lg:text-sm">
+                All players have been cleared from pending • Rosters & Bidding Concluded
+              </p>
+              <div className="mt-6 grid w-full max-w-3xl grid-cols-4 gap-3 lg:gap-4">
+                <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-center">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-white/70">Total Players</div>
+                  <div className="aa-display mt-1 text-2xl text-white lg:text-3xl">{totalCount}</div>
                 </div>
-                <div className="flex min-w-0 flex-col items-center justify-center rounded-xl bg-[#EC008C] px-3 py-2 text-white shadow-md shadow-[#EC008C]/40 lg:py-3">
-                  <div className="text-[10px] font-black uppercase tracking-widest">Bid Points</div>
-                  <div className="aa-display max-w-full truncate text-[clamp(26px,3.2vw,46px)] leading-tight">
-                    {money(currentBid)}
-                  </div>
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-center">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Sold Players</div>
+                  <div className="aa-display mt-1 text-2xl text-emerald-400 lg:text-3xl">{dashboardSummary?.sold_players ?? 0}</div>
+                </div>
+                <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-center">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-rose-400">Unsold</div>
+                  <div className="aa-display mt-1 text-2xl text-rose-400 lg:text-3xl">{dashboardSummary?.unsold_players ?? 0}</div>
+                </div>
+                <div className="rounded-xl border border-[#EC008C]/30 bg-[#EC008C]/10 p-3 text-center">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-[#ff7cc6]">Teams</div>
+                  <div className="aa-display mt-1 text-2xl text-white lg:text-3xl">{dashboardSummary?.total_teams ?? 0}</div>
                 </div>
               </div>
-
-              {state?.highest_team_name && (
-                <div className="mt-3 flex max-w-xl items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5">
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#EC008C]/20 text-[#ff1f9f]">
-                      <Gavel size={16} className="-rotate-45" />
-                    </span>
-                    <div className="min-w-0 truncate text-xs font-semibold text-white/70 lg:text-sm">
-                      Highest Bid: <span className="font-black text-[#8DC63F]">{state.highest_team_name}</span>
-                    </div>
-                  </div>
-                  <span className="shrink-0 rounded bg-[#EC008C] px-2.5 py-1 text-xs font-black text-white">
-                    {initials(state.highest_team_name)}
-                  </span>
-                </div>
-              )}
             </div>
           </div>
-        </div>
+        </section>
+      ) : (
+        <section className="mt-4 hidden md:block">
+          <div className="rounded-2xl border border-white/10 bg-[#2b0d29]/95 p-4 text-white shadow-2xl backdrop-blur-md lg:p-5">
+            <div className="text-xs font-bold uppercase tracking-wide text-white/90 lg:text-sm">
+              {roundNo ? (
+                <>
+                  Round {roundNo} <span className="mx-1.5 text-white/40">|</span>
+                </>
+              ) : null}
+              <span className={roundNo ? "text-white/70" : ""}>Current Player</span>
+            </div>
 
-        {hasStats && <StatsBar stats={stats} html={playerInfoHtml} />}
-      </section>
+            <div className="mt-3 flex items-center gap-4 lg:mt-4 lg:gap-7">
+              <DesktopPlayerPhoto url={state?.photo_url} name={state?.player_name} />
+
+              <div className="min-w-0 flex-1">
+                <h2 className="aa-display break-words text-[clamp(26px,4vw,56px)] uppercase leading-none text-white">
+                  {hasPlayer ? (
+                    <>
+                      {showSerial ? <span className="mr-2 text-[#ff7cc6]">{serialNo} -</span> : null}
+                      {playerName}
+                    </>
+                  ) : (
+                    "Waiting for player..."
+                  )}
+                  {jersey ? <span className="ml-2 text-[#ff1f9f]">{jersey}</span> : null}
+                </h2>
+
+                {/* Role and category side by side */}
+                <RoleCategory role={role} category={category} size="lg" />
+
+                {/* Base | Bid */}
+                <div className="mt-3 grid max-w-xl grid-cols-[1fr_1.25fr] gap-3 lg:mt-4">
+                  <div className="flex min-w-0 flex-col items-center justify-center rounded-xl bg-[#8DC63F] px-3 py-2 text-slate-900 shadow-md lg:py-3">
+                    <div className="text-[10px] font-black uppercase tracking-widest">Base Points</div>
+                    <div className="aa-display max-w-full truncate text-[clamp(20px,2.4vw,34px)] leading-tight">
+                      {money(basePrice)}
+                    </div>
+                  </div>
+                  <div className="flex min-w-0 flex-col items-center justify-center rounded-xl bg-[#EC008C] px-3 py-2 text-white shadow-md shadow-[#EC008C]/40 lg:py-3">
+                    <div className="text-[10px] font-black uppercase tracking-widest">Bid Points</div>
+                    <div className="aa-display max-w-full truncate text-[clamp(26px,3.2vw,46px)] leading-tight">
+                      {money(currentBid)}
+                    </div>
+                  </div>
+                </div>
+
+                {state?.highest_team_name && (
+                  <div className="mt-3 flex max-w-xl items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#EC008C]/20 text-[#ff1f9f]">
+                        <Gavel size={16} className="-rotate-45" />
+                      </span>
+                      <div className="min-w-0 truncate text-xs font-semibold text-white/70 lg:text-sm">
+                        Highest Bid: <span className="font-black text-[#8DC63F]">{state.highest_team_name}</span>
+                      </div>
+                    </div>
+                    <span className="shrink-0 rounded bg-[#EC008C] px-2.5 py-1 text-xs font-black text-white">
+                      {initials(state.highest_team_name)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {hasStats && <StatsBar stats={stats} html={playerInfoHtml} />}
+        </section>
+      )}
     </>
   );
 }

@@ -423,7 +423,7 @@ function pdfDrawRosterCard(doc, player, photo, x, y) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.setTextColor(...PDF_PINK);
-  doc.text(`Rs. ${Number(player.sold_price || 0).toLocaleString("en-IN")}`, cx + 12.5, boxY + boxH * 0.7, { baseline: "middle" });
+  doc.text(`${Number(player.sold_price || 0).toLocaleString("en-IN")}`, cx + 12.5, boxY + boxH * 0.7, { baseline: "middle" });
 }
 
 // Loads the page background and every player photo once
@@ -437,7 +437,7 @@ async function loadTeamPdfAssets(players) {
 
 // Draws one team's roster starting on the current page of `doc`
 function drawTeamRosterPages(doc, team, teamPlayers, assets) {
-  const purse = `Rs. ${Number(team.remaining_purse || 0).toLocaleString("en-IN")}`;
+  const purse = `${Number(team.remaining_purse || 0).toLocaleString("en-IN")}`;
   const startPage = (full) => {
     pdfDrawPageBackground(doc, assets.bg);
     return pdfDrawTeamHeader(doc, { full, teamName: team.team_name || "Team", total: teamPlayers.length, purse });
@@ -849,7 +849,7 @@ export default function TeamsPage() {
               <StatCard
                 icon={Wallet}
                 label="Purse remaining (all teams)"
-                value={`₹${formatAmount(totalPurseRemaining)}`}
+                value={`${formatAmount(totalPurseRemaining)}`}
                 tint="bg-emerald-50 text-emerald-600"
               />
               <StatCard
@@ -1025,7 +1025,7 @@ export default function TeamsPage() {
                       <div className="min-w-0">
                         <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">Purse</div>
                         <div className="whitespace-nowrap text-xs font-black leading-tight text-slate-900">
-                          ₹{formatAmount(team.total_purse)}
+                          {formatAmount(team.total_purse)}
                         </div>
                       </div>
                       
@@ -1033,7 +1033,7 @@ export default function TeamsPage() {
                       <div className="min-w-0">
                         <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">Spent</div>
                         <div className="whitespace-nowrap text-xs font-black leading-tight text-slate-900">
-                          ₹{formatAmount(team.used_purse)}
+                          {formatAmount(team.used_purse)}
                         </div>
                       </div>
                       
@@ -1041,7 +1041,7 @@ export default function TeamsPage() {
                       <div className="min-w-0">
                         <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">Balance</div>
                         <div className="whitespace-nowrap text-xs font-black leading-tight text-emerald-600">
-                          ₹{formatAmount(team.remaining_purse)}
+                          {formatAmount(team.remaining_purse)}
                         </div>
                       </div>
                       
@@ -1049,7 +1049,7 @@ export default function TeamsPage() {
                       <div className="min-w-0">
                         <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">Max Bid</div>
                         <div className={`whitespace-nowrap text-xs font-black leading-tight ${maxBidVal === 0 ? "text-red-500" : "text-[#EC008C]"}`}>
-                          {maxBidVal === 0 ? "LOCKED" : `₹${formatAmount(maxBidVal !== null ? maxBidVal : team.remaining_purse)}`}
+                          {maxBidVal === 0 ? "LOCKED" : formatAmount(maxBidVal !== null ? maxBidVal : team.remaining_purse)}
                         </div>
                       </div>
                     </div>
@@ -1173,7 +1173,7 @@ function TeamPlayersModal({ team, auctionId, onClose }) {
             <div>
               <h3 className="text-xl font-black text-slate-900">{team.team_name}</h3>
               <p className="text-sm font-semibold text-slate-500">
-                Purse: ₹{Number(team.remaining_purse || 0).toLocaleString("en-IN")} left | Players: {players.length}
+                Purse: {Number(team.remaining_purse || 0).toLocaleString("en-IN")} left | Players: {players.length}
               </p>
             </div>
           </div>
@@ -1220,7 +1220,7 @@ function TeamPlayersModal({ team, auctionId, onClose }) {
                     </div>
                   </div>
                   <div className="shrink-0 text-right">
-                    <div className="text-xs font-black text-emerald-600">₹{Number(p.sold_price).toLocaleString("en-IN")}</div>
+                    <div className="text-xs font-black text-emerald-600">{Number(p.sold_price).toLocaleString("en-IN")}</div>
                   </div>
                 </div>
               ))}
@@ -1283,7 +1283,7 @@ function TeamForm({ form, setForm, onSubmit, onClose, onDelete, editing }) {
             onChange={(val) => set("owner_mobile", val)}
           />
           <FormInput
-            label="Total Purse (₹) *"
+            label="Total Purse *"
             type="number"
             value={form.total_purse || ""}
             onChange={(val) => set("total_purse", val)}
@@ -1293,7 +1293,7 @@ function TeamForm({ form, setForm, onSubmit, onClose, onDelete, editing }) {
 
         {editing && (
             <FormInput
-              label="Remaining Purse (₹)"
+              label="Remaining Purse"
               type="number"
               value={form.remaining_purse || ""}
               onChange={(val) => set("remaining_purse", val)}

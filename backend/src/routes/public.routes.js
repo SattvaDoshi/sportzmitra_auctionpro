@@ -56,6 +56,26 @@ async function getCachedSnapshot(auctionId) {
     console.error("Failed to augment max bids in public snapshot", e);
   }
 
+  // If all players are cleared from pending and current player is inactive/sold/unsold, ensure completed state
+  const isPendingCleared =
+    (snapshot.dashboardSummary?.pending_players === 0 || (snapshot.pendingPlayers && snapshot.pendingPlayers.length === 0)) &&
+    ((snapshot.dashboardSummary?.total_players || 0) > 0 || (snapshot.soldPlayers?.length || 0) > 0);
+
+  if (isPendingCleared && (!snapshot.state?.current_player_id || ["SOLD", "UNSOLD", "FINAL_UNSOLD", "COMPLETED"].includes(snapshot.state?.state))) {
+    if (snapshot.state) {
+      snapshot.state.state = "COMPLETED";
+      snapshot.state.current_player_id = null;
+      snapshot.state.player_name = null;
+      snapshot.state.photo_url = null;
+      snapshot.state.current_bid = 0;
+      snapshot.state.highest_team_id = null;
+      snapshot.state.highest_team_name = null;
+    }
+    if (snapshot.auction) {
+      snapshot.auction.status = "COMPLETED";
+    }
+  }
+
   cache.set(cacheKey, snapshot); // 2-second default TTL
   return snapshot;
 }

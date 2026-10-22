@@ -1,7 +1,7 @@
 import { matchesPlayerSearch, sortPlayersBySearch } from "../utils/playerSearch";
 import {
   Activity,
-  IndianRupee,
+  Trophy,
   RefreshCw,
   Search,
   Shuffle,
@@ -142,7 +142,7 @@ function CelebrationOverlay({ celebration, onClose }) {
         ) : null}
         {isSold && amount ? (
           <div className="mt-4 inline-flex items-center justify-center rounded-2xl bg-green-600 px-8 py-3 text-[clamp(28px,4vw,64px)] font-black leading-none text-white shadow-lg shadow-green-600/30">
-            ₹{formatAmount(amount)}
+            {formatAmount(amount)}
           </div>
         ) : null}
       </div>
@@ -324,6 +324,14 @@ export default function LiveControl() {
     () => players.filter((p) => ["AVAILABLE", "UNSOLD"].includes(String(p.status || "").toUpperCase())),
     [players]
   );
+
+  const isAuctionCompleted =
+    state?.state === "COMPLETED" ||
+    auction?.status === "COMPLETED" ||
+    (players.length > 0 &&
+      eligiblePlayers.length === 0 &&
+      (!currentPlayerId || ["SOLD", "UNSOLD", "FINAL_UNSOLD", "COMPLETED"].includes(String(currentPlayer?.status || state?.state || "").toUpperCase())));
+
 
   const filteredPlayers = useMemo(() => {
     const q = manualPlayerSearch.trim();
@@ -593,7 +601,13 @@ export default function LiveControl() {
             </div>
 
             <div className="flex h-[260px] items-center justify-center rounded-xl border border-slate-100 bg-slate-50 p-2">
-              {currentPlayerId ? (
+              {isAuctionCompleted ? (
+                <div className="flex h-full w-full flex-col items-center justify-center rounded-xl border-2 border-emerald-500/30 bg-emerald-50/60 p-4 text-center">
+                  <Trophy className="h-12 w-12 text-emerald-600 mb-2 animate-bounce" />
+                  <div className="text-lg font-black uppercase tracking-wider text-emerald-700">Auction Completed</div>
+                  <div className="mt-1 text-xs font-bold text-slate-500">All players have been cleared from pending</div>
+                </div>
+              ) : currentPlayerId ? (
                 <PlayerPhoto player={currentPlayer} />
               ) : (
                 <div className="flex h-full w-full items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white text-center p-4">
@@ -607,25 +621,25 @@ export default function LiveControl() {
 
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3.5">
               <div className="truncate text-lg font-black uppercase tracking-tight text-slate-900">
-                {currentPlayer?.serial_number ? `${currentPlayer.serial_number} - ` : ""}{currentPlayer?.player_name || "Player Not Selected"}
+                {isAuctionCompleted ? "Auction Concluded" : ((currentPlayer?.serial_number ? `${currentPlayer.serial_number} - ` : "") + (currentPlayer?.player_name || "Player Not Selected"))}
               </div>
 
               <div className="mt-3 grid grid-cols-3 gap-2 text-center">
                 <div className="rounded-lg border border-slate-200 bg-white p-2 shadow-2xs">
-                  <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">Category</div>
-                  <div className="mt-0.5 truncate text-xs font-extrabold text-[#E5007D]">{currentPlayer?.category || "-"}</div>
+                  <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">{isAuctionCompleted ? "Total" : "Category"}</div>
+                  <div className="mt-0.5 truncate text-xs font-extrabold text-[#E5007D]">{isAuctionCompleted ? `${players.length} Players` : (currentPlayer?.category || "-")}</div>
                 </div>
                 <div className="rounded-lg border border-slate-200 bg-white p-2 shadow-2xs">
-                  <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">Role</div>
-                  <div className="mt-0.5 truncate text-xs font-extrabold text-slate-800">{currentPlayer?.player_role || "-"}</div>
+                  <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">{isAuctionCompleted ? "Sold" : "Role"}</div>
+                  <div className="mt-0.5 truncate text-xs font-extrabold text-slate-800">{isAuctionCompleted ? `${players.filter(p => p.status === 'SOLD').length} Sold` : (currentPlayer?.player_role || "-")}</div>
                 </div>
                 <div className="rounded-lg border border-slate-200 bg-white p-2 shadow-2xs">
-                  <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">Base Price</div>
-                  <div className="mt-0.5 truncate text-xs font-extrabold text-[#8CC63F]">₹{formatAmount(currentPlayer?.base_price)}</div>
+                  <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">{isAuctionCompleted ? "Pending" : "Base Price"}</div>
+                  <div className="mt-0.5 truncate text-xs font-extrabold text-[#8CC63F]">{isAuctionCompleted ? "0 Left" : formatAmount(currentPlayer?.base_price)}</div>
                 </div>
               </div>
 
-              {auction?.auction_type === "CATEGORY_WISE" && (
+              {auction?.auction_type === "CATEGORY_WISE" && !isAuctionCompleted && (
                 <div className="mt-3 flex items-center justify-between rounded-lg border border-slate-200 bg-slate-100 px-3 py-2">
                   <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                     Curr: <span className="text-slate-900">{state?.current_category || "N/A"}</span>
@@ -639,7 +653,7 @@ export default function LiveControl() {
               )}
 
               <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-200 pt-2.5">
-                <StatusBadge status={currentPlayer?.status || "NOT_STARTED"} />
+                <StatusBadge status={isAuctionCompleted ? "COMPLETED" : (currentPlayer?.status || "NOT_STARTED")} />
                 <div className="text-[10px] font-black uppercase tracking-wider text-slate-500">
                   Mode: <span className="text-[#E5007D]">{modeLabel[selectionMode] || selectionMode}</span>
                 </div>
@@ -716,7 +730,9 @@ export default function LiveControl() {
                   </button>
                 ))}
                 {filteredPlayers.length === 0 && (
-                  <div className="p-3 text-center text-xs font-semibold text-slate-400">No eligible players found</div>
+                  <div className="p-3 text-center text-xs font-semibold text-slate-400">
+                    {isAuctionCompleted ? "All players cleared from pending (Auction Complete)" : "No eligible players found"}
+                  </div>
                 )}
               </div>
 
@@ -746,12 +762,16 @@ export default function LiveControl() {
             </div>
 
             {/* Display Active Bid */}
-            <div className="rounded-xl border border-[#8CC63F]/40 bg-[#8CC63F]/10 p-5 text-center">
+            <div className={`rounded-xl border p-5 text-center ${
+              isAuctionCompleted
+                ? "border-emerald-500/40 bg-emerald-50/50"
+                : "border-[#8CC63F]/40 bg-[#8CC63F]/10"
+            }`}>
               <div className="inline-flex items-center gap-1 text-xs font-black uppercase tracking-widest text-slate-800">
-                <IndianRupee size={15} /> Current Bid
+                {isAuctionCompleted ? "Status" : "Current Bid"}
               </div>
-              <div className="mt-2 text-[clamp(42px,5vw,68px)] font-black leading-none text-slate-950">
-                ₹{formatAmount(bid || state?.current_bid || basePrice)}
+              <div className={`mt-2 font-black leading-none text-slate-950 ${isAuctionCompleted ? "text-[clamp(24px,3vw,40px)] text-emerald-700" : "text-[clamp(42px,5vw,68px)]"}`}>
+                {isAuctionCompleted ? "AUCTION COMPLETED" : formatAmount(bid || state?.current_bid || basePrice)}
               </div>
             </div>
 
@@ -759,7 +779,7 @@ export default function LiveControl() {
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
               <label className="block">
                 <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">
-                  Bid Increment (₹)
+                  Bid Increment
                 </span>
                 <input
                   value={increment}
@@ -822,14 +842,14 @@ export default function LiveControl() {
 
               <div className="grid grid-cols-2 gap-3">
                 <button
-                  disabled={busy || !currentPlayerId}
+                  disabled={busy || !currentPlayerId || isAuctionCompleted}
                   onClick={markSold}
                   className="rounded-xl bg-green-600 hover:bg-green-700 py-3.5 text-lg font-black uppercase text-white shadow-sm transition-all disabled:opacity-40"
                 >
                   Sold
                 </button>
                 <button
-                  disabled={busy || !currentPlayerId}
+                  disabled={busy || !currentPlayerId || isAuctionCompleted}
                   onClick={markUnsold}
                   className="rounded-xl bg-red-600 hover:bg-red-700 py-3.5 text-lg font-black uppercase text-white shadow-sm transition-all disabled:opacity-40"
                 >
@@ -838,11 +858,11 @@ export default function LiveControl() {
               </div>
 
               <button
-                disabled={busy}
+                disabled={busy || isAuctionCompleted}
                 onClick={() => call(() => api.post(`/live/${auctionId}/suggest-next`), { clearTeam: true })}
                 className="mt-3 w-full rounded-xl border border-slate-200 bg-white py-2.5 text-xs font-black uppercase tracking-wider text-slate-700 hover:bg-slate-100 disabled:opacity-40 transition-all shadow-2xs"
               >
-                Next Player
+                {isAuctionCompleted ? "Auction Complete (No Players Remaining)" : "Next Player"}
               </button>
 
               <div className="mt-3 grid grid-cols-2 gap-3 border-t border-slate-200 pt-3">
@@ -946,12 +966,12 @@ export default function LiveControl() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="text-xs font-black">₹{formatAmount(balance)}</div>
+                        <div className="text-xs font-black">{formatAmount(balance)}</div>
                         {maxBidVal !== null && (
                           <div className={`text-[9px] font-black uppercase ${
                             maxBidVal === 0 ? "text-red-500" : "text-emerald-600"
                           }`}>
-                            {maxBidVal === 0 ? "LOCKED" : `Max ₹${formatAmount(maxBidVal)}`}
+                            {maxBidVal === 0 ? "LOCKED" : `Max ${formatAmount(maxBidVal)}`}
                           </div>
                         )}
                       </div>
@@ -986,7 +1006,7 @@ export default function LiveControl() {
                           {selectedTeam.team_name}
                         </div>
                         <div className="text-xs font-black text-[#E5007D]">
-                          Balance: ₹{formatAmount(balanceOf(selectedTeam))}
+                          Balance: {formatAmount(balanceOf(selectedTeam))}
                         </div>
                       </div>
                     </div>
@@ -1002,7 +1022,7 @@ export default function LiveControl() {
                         <span className={`text-sm font-black ${
                           isBidOver ? "text-red-600" : maxBidVal === 0 ? "text-orange-600" : "text-emerald-600"
                         }`}>
-                          {maxBidVal === 0 ? "LOCKED" : `₹${formatAmount(maxBidVal)}`}
+                          {maxBidVal === 0 ? "LOCKED" : formatAmount(maxBidVal)}
                         </span>
                       </div>
                     )}
@@ -1135,7 +1155,7 @@ export default function LiveControl() {
                 <div className="text-base font-black text-slate-900">{correctionModal.player_name}</div>
                 <div className="mt-2 flex gap-4 text-xs font-semibold text-slate-600">
                   <span>Current Team: {correctionModal.sold_team_name}</span>
-                  <span>Current Price: ₹{formatAmount(correctionModal.sold_price)}</span>
+                  <span>Current Price: {formatAmount(correctionModal.sold_price)}</span>
                 </div>
               </div>
 
@@ -1149,13 +1169,13 @@ export default function LiveControl() {
                   >
                     <option value="">Select correct team...</option>
                     {teams.map(t => (
-                      <option key={t.id} value={t.id}>{t.team_name} (Purse: ₹{formatAmount(balanceOf(t))})</option>
+                      <option key={t.id} value={t.id}>{t.team_name} (Purse: {formatAmount(balanceOf(t))})</option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-slate-500">New Price (₹)</label>
+                  <label className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-slate-500">New Price</label>
                   <input
                     type="number"
                     className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none focus:border-[#EC008C]"

@@ -19,13 +19,13 @@ import api from "../api/api";
 const AVATAR_FALLBACK =
   "https://images.unsplash.com/photo-1566577739112-5180d4bf9390?auto=format&fit=crop&w=200&q=80";
 
-// ── Format a raw number into ₹X.XXL / ₹X.XXCr ───────────────────────────────
+// ── Format a raw number into X.XXL / X.XXCr ───────────────────────────────
 function formatSaleValue(value) {
   const n = Number(value || 0);
-  if (n >= 1_00_00_000) return `₹${(n / 1_00_00_000).toFixed(2)}Cr`;
-  if (n >= 1_00_000) return `₹${(n / 1_00_000).toFixed(2)}L`;
-  if (n >= 1_000) return `₹${(n / 1_000).toFixed(1)}K`;
-  return `₹${n.toLocaleString("en-IN")}`;
+  if (n >= 1_00_00_000) return `${(n / 1_00_00_000).toFixed(2)}Cr`;
+  if (n >= 1_00_000) return `${(n / 1_00_000).toFixed(2)}L`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return `${n.toLocaleString("en-IN")}`;
 }
 
 // ── Time-of-day greeting ──────────────────────────────────────────────────────

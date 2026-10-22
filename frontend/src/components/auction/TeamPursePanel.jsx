@@ -61,7 +61,7 @@ function TeamPurseCard({ team }) {
         </div>
         <div className="text-right">
           <div className="text-base font-black text-slate-900">
-            ₹{remaining.toLocaleString("en-IN")}
+            {remaining.toLocaleString("en-IN")}
           </div>
           <div className="text-[10px] font-black uppercase tracking-widest text-[#EC008C]">
             Available

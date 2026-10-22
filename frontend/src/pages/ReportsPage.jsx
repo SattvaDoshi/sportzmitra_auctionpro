@@ -12,7 +12,7 @@ import {
   Users,
   UserCheck,
   UserX,
-  IndianRupee,
+  Coins,
   Download,
   FileSpreadsheet,
   ChevronDown,
@@ -507,7 +507,7 @@ function Leaderboard({ players }) {
                   </p>
 
                   <p className="shrink-0 text-[13px] font-bold text-[#1C1917]">
-                    ₹{formatAmount(price)}
+                    {formatAmount(price)}
                   </p>
                 </div>
 
@@ -570,7 +570,7 @@ function AuctionSummaryTab({
                 <TrendingUp className="h-3 w-3 text-[#8A8078]" />
 
                 <span className="text-[11px] font-semibold text-[#8A8078]">
-                  Avg ₹{formatAmount(avgSalePrice)}
+                  Avg {formatAmount(avgSalePrice)}
                 </span>
               </div>
             )
@@ -598,7 +598,7 @@ function TeamPerformanceTab({ sold, teamsData = [], globalPurse = 0 }) {
       doc.text(`Team: ${team.name}`, 14, 20);
       doc.setFontSize(11);
       doc.text(`Total Players: ${team.players.length}`, 14, 28);
-      doc.text(`Total Spend: Rs. ${formatAmount(team.spend)}`, 14, 34);
+      doc.text(`Total Spend: ${formatAmount(team.spend)}`, 14, 34);
       
       const tableData = team.players.map(p => [
         p.player_name, 
@@ -609,7 +609,7 @@ function TeamPerformanceTab({ sold, teamsData = [], globalPurse = 0 }) {
       
       autoTable(doc, {
         startY: 42,
-        head: [['Player Name', 'Category', 'Role', 'Price (Rs.)']],
+        head: [['Player Name', 'Category', 'Role', 'Price']],
         body: tableData,
         theme: 'striped',
         headStyles: { fillColor: [184, 38, 91] }, // theme.rose
@@ -711,8 +711,7 @@ function TeamPerformanceTab({ sold, teamsData = [], globalPurse = 0 }) {
                 </div>
 
                 <p className="text-[12px] text-[#8A8078]">
-                  {team.players.length} players · ₹
-                  {formatAmount(team.spend)}
+                  {team.players.length} players · {formatAmount(team.spend)}
                 </p>
               </div>
             </div>
@@ -743,8 +742,8 @@ function TeamPerformanceTab({ sold, teamsData = [], globalPurse = 0 }) {
             return (
               <div className="mt-4 space-y-1">
                 <div className="flex justify-between text-[11px] font-medium text-[#8A8078]">
-                  <span>Spend (₹{formatAmount(team.spend)})</span>
-                  <span>Remaining (₹{formatAmount(remaining)})</span>
+                  <span>Spend ({formatAmount(team.spend)})</span>
+                  <span>Remaining ({formatAmount(remaining)})</span>
                 </div>
 
                 <div className="h-2 w-full overflow-hidden rounded-full bg-[#F0E8E4]">
@@ -796,7 +795,7 @@ function TeamPerformanceTab({ sold, teamsData = [], globalPurse = 0 }) {
               <div>
                 <h3 className="text-lg font-bold text-[#1C1917]">{viewTeam.name}</h3>
                 <p className="text-[12px] font-medium text-[#8A8078]">
-                  {viewTeam.players.length} players • ₹{formatAmount(viewTeam.spend)}
+                  {viewTeam.players.length} players • {formatAmount(viewTeam.spend)}
                 </p>
               </div>
               <button
@@ -821,7 +820,7 @@ function TeamPerformanceTab({ sold, teamsData = [], globalPurse = 0 }) {
                     </div>
                     <div className="text-right">
                       <div className="text-[10px] font-bold uppercase text-[#8A8078]">Sold For</div>
-                      <div className="text-[13px] font-bold text-[#059669]">₹{formatAmount(p.sold_price)}</div>
+                      <div className="text-[13px] font-bold text-[#059669]">{formatAmount(p.sold_price)}</div>
                     </div>
                   </div>
                 ))}
@@ -988,12 +987,12 @@ function PlayerResultsTab({ players }) {
                     <td className="py-3 text-right">
                       <span className="text-[13px] font-bold text-[#1C1917]">
                         {p.status === "SOLD" ? (
-                          `₹${formatAmount(
+                          `${formatAmount(
                             p.sold_price
                           )}`
                         ) : base ? (
                           <span className="font-medium text-[#8A8078]">
-                            ₹{formatAmount(base)} base
+                            {formatAmount(base)} base
                           </span>
                         ) : (
                           <span className="text-[#C4B9B4]">
@@ -1114,13 +1113,13 @@ function SoldUnsoldList({
 
                 <p className="shrink-0 text-[13px] font-bold text-[#1C1917]">
                   {isSold
-                    ? `₹${formatAmount(
+                    ? `${formatAmount(
                         p.sold_price
                       )}`
                     : base
                     ? (
                       <span className="font-medium text-[#8A8078]">
-                        ₹{formatAmount(base)}
+                        {formatAmount(base)}
                       </span>
                     )
                     : "—"}
@@ -1299,8 +1298,8 @@ function exportToExcel(players, auctionName, teams = []) {
       "Email": p.player_email || "-",
       "Age": p.age ?? "-",
       "Area": p.area || "-",
-      "Base Price (₹)": Number(p.base_price || 0),
-      "Sold Price (₹)": isSold ? Number(p.sold_price || 0) : 0,
+      "Base Price": Number(p.base_price || 0),
+      "Sold Price": isSold ? Number(p.sold_price || 0) : 0,
       "Status": p.status || "-",
       "Player Info": cleanPlayerInfo(p.player_info) || "-",
       "Photo URL": p.photo_url || "-",
@@ -1323,8 +1322,8 @@ function exportToExcel(players, auctionName, teams = []) {
     { wch: 26 }, // Email
     { wch: 8 },  // Age
     { wch: 18 }, // Area
-    { wch: 15 }, // Base Price (₹)
-    { wch: 15 }, // Sold Price (₹)
+    { wch: 15 }, // Base Price
+    { wch: 15 }, // Sold Price
     { wch: 14 }, // Status
     { wch: 32 }, // Player Info
     { wch: 36 }, // Photo URL
@@ -1341,9 +1340,9 @@ function exportToExcel(players, auctionName, teams = []) {
       "S.No": index + 1,
       "Team Name": t.team_name || "-",
       "Short Name": t.short_name || "-",
-      "Total Purse (₹)": Number(t.total_purse || 0),
-      "Total Spent (₹)": Number(t.total_spent || t.used_purse || 0),
-      "Remaining Purse (₹)": Number(t.remaining_purse || 0),
+      "Total Purse": Number(t.total_purse || 0),
+      "Total Spent": Number(t.total_spent || t.used_purse || 0),
+      "Remaining Purse": Number(t.remaining_purse || 0),
       "Players Bought": Number(t.players_bought || 0),
     }));
 
@@ -1352,9 +1351,9 @@ function exportToExcel(players, auctionName, teams = []) {
       { wch: 6 },  // S.No
       { wch: 26 }, // Team Name
       { wch: 12 }, // Short Name
-      { wch: 18 }, // Total Purse (₹)
-      { wch: 18 }, // Total Spent (₹)
-      { wch: 18 }, // Remaining Purse (₹)
+      { wch: 18 }, // Total Purse
+      { wch: 18 }, // Total Spent
+      { wch: 18 }, // Remaining Purse
       { wch: 16 }, // Players Bought
     ];
     XLSX.utils.book_append_sheet(wb, wsTeams, "Team Summary");
@@ -1506,8 +1505,8 @@ export default function ReportsPage() {
                 />
                 <StatCard
                   label="Total Sale Value"
-                  value={`₹${formatAmount(summary.total_sale_value ?? totalSaleValue)}`}
-                  icon={<IndianRupee className="h-5 w-5" />}
+                  value={`${formatAmount(summary.total_sale_value ?? totalSaleValue)}`}
+                  icon={<Coins className="h-5 w-5" />}
                   accent={theme.amber}
                   accentBg={theme.amberLight}
                 />

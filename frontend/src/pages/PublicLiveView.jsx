@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
 import api from "../api/api";
-import { getImageUrl } from "../utils/imageUrl";
 import socket from "../utils/socket";
-import { Gavel, Users, CalendarDays, MapPin, X } from "lucide-react";
+import { getImageUrl } from "../utils/imageUrl";
+import { Gavel, Users, CalendarDays, MapPin, X, Trophy } from "lucide-react";
 
 /**
  * PublicLiveView.jsx  (blue theme)
@@ -922,6 +922,13 @@ export default function PublicLiveView() {
   /* Stats: up to 6 columns on laptop */
   const statCols = Math.max(1, Math.min(filledStats.length, 6));
 
+  const pendingCount = snapshot?.dashboardSummary?.pending_players ?? snapshot?.pendingPlayers?.length ?? 0;
+  const totalCount = snapshot?.dashboardSummary?.total_players ?? ((snapshot?.soldPlayers?.length || 0) + (snapshot?.unsoldPlayers?.length || 0) + pendingCount);
+  const isAuctionCompleted =
+    state?.state === "COMPLETED" ||
+    auction?.status === "COMPLETED" ||
+    (totalCount > 0 && pendingCount === 0 && (!currentPlayer?.id || ["SOLD", "UNSOLD", "FINAL_UNSOLD", "COMPLETED"].includes(state?.state)));
+
   return (
     <div className="relative flex min-h-[100svh] w-full flex-col overflow-x-hidden bg-[#030b1f] font-sans text-white">
       <DisplayFontLoader />
@@ -979,75 +986,153 @@ export default function PublicLiveView() {
 
           {/* =================== MAIN STAGE =================== */}
           <main className="flex flex-1 flex-col justify-center">
-            <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] md:gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-              {/* PHOTO (solid background) */}
-              <div className="relative mx-auto w-full max-w-[380px] md:mx-0 md:max-w-none">
-                <PlayerPhoto
-                  url={currentPlayer?.photo_url}
-                  name={currentPlayer?.player_name}
-                  className="aspect-[4/5] w-full md:aspect-auto md:h-full md:min-h-[420px] lg:min-h-[480px]"
-                />
-              </div>
-
-              {/* DETAILS PANEL */}
-              <div className={`${PANEL} flex min-w-0 flex-col justify-center gap-3 p-3 sm:gap-4 sm:p-5`}>
-                {/* Name + role + category */}
-                <div className="flex flex-col items-center text-center md:items-start md:text-left">
-                  <PlayerName
-                    as="h2"
-                    name={currentPlayer?.player_name}
-                    serial={currentPlayer?.serial_number}
-                    jersey={currentPlayer?.jersey_number}
-                    className="text-[clamp(40px,5.4vw,96px)]"
-                  />
-                  <RoleLine role={currentPlayer?.player_role} category={currentPlayer?.category} />
+            {isAuctionCompleted ? (
+              <div className="relative mx-auto flex w-full max-w-4xl flex-col items-center justify-center rounded-3xl border border-sky-400/40 bg-gradient-to-b from-[#071c44]/90 via-[#04132e]/95 to-[#020b1c]/95 p-6 text-center shadow-[0_0_50px_rgba(56,189,248,0.25)] backdrop-blur-xl sm:p-10 md:p-12">
+                <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-3xl">
+                  <div className="absolute -top-24 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-sky-500/20 blur-3xl" />
+                  <div className="absolute -bottom-24 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-amber-500/15 blur-3xl" />
                 </div>
 
-                {/* Age + Area */}
-                <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                  <InfoBox icon={CalendarDays} label="Age" value={currentPlayer?.age || "-"} />
-                  <InfoBox icon={MapPin} label="Area" value={currentPlayer?.area || "-"} />
-                </div>
+                <div className="relative flex flex-col items-center">
+                  <div className="mb-4 inline-flex items-center justify-center rounded-2xl border border-amber-400/40 bg-amber-400/10 p-4 text-amber-400 shadow-[0_0_30px_rgba(251,191,36,0.3)]">
+                    <Trophy className="h-12 w-12 sm:h-16 sm:w-16 animate-pulse" />
+                  </div>
 
-                {/* Current bid + leading team */}
-                <div className={`${INNER} grid gap-4 p-3 sm:p-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:items-center`}>
-                  <div className="flex min-w-0 flex-col items-center text-center">
-                    <div className="text-xs font-black uppercase tracking-[0.2em] text-white sm:text-sm">
-                      Current Bid
+                  <div className="inline-flex items-center gap-2 rounded-full border border-sky-400/40 bg-[#041533]/80 px-4 py-1.5 text-xs font-black uppercase tracking-[0.25em] text-sky-400">
+                    Official Announcement
+                  </div>
+
+                  <h2 className="aa-display mt-4 text-[clamp(44px,7vw,92px)] uppercase leading-none tracking-tight text-white drop-shadow-[0_0_24px_rgba(56,189,248,0.5)]">
+                    <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-yellow-200 to-amber-400">
+                      Auction Completed
+                    </span>
+                  </h2>
+
+                  <p className="mt-3 max-w-xl text-sm font-semibold uppercase tracking-widest text-white/80 sm:text-base">
+                    All players have been auctioned • Pending queue cleared
+                  </p>
+
+                  <div className="mt-8 grid w-full max-w-2xl grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+                    <div className="rounded-2xl border border-sky-400/30 bg-[#030b1f]/70 p-3.5 sm:p-4">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-sky-300 sm:text-xs">
+                        Total Players
+                      </div>
+                      <div className="aa-display mt-1 text-2xl text-white sm:text-3xl">
+                        {snapshot?.dashboardSummary?.total_players ?? totalCount}
+                      </div>
                     </div>
-                    <div
-                      className={`aa-display mt-1 max-w-full text-[clamp(44px,12vw,76px)] leading-none [filter:drop-shadow(0_0_18px_rgba(255,190,40,0.45))] lg:text-[clamp(40px,4.6vw,80px)] ${GOLD_TEXT}`}
+
+                    <div className="rounded-2xl border border-emerald-400/30 bg-[#030b1f]/70 p-3.5 sm:p-4">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-emerald-400 sm:text-xs">
+                        Players Sold
+                      </div>
+                      <div className="aa-display mt-1 text-2xl text-emerald-400 sm:text-3xl">
+                        {snapshot?.dashboardSummary?.sold_players ?? snapshot?.soldPlayers?.length ?? 0}
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-rose-400/30 bg-[#030b1f]/70 p-3.5 sm:p-4">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-rose-400 sm:text-xs">
+                        Unsold
+                      </div>
+                      <div className="aa-display mt-1 text-2xl text-rose-400 sm:text-3xl">
+                        {snapshot?.dashboardSummary?.unsold_players ?? snapshot?.unsoldPlayers?.length ?? 0}
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-amber-400/30 bg-[#030b1f]/70 p-3.5 sm:p-4">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-amber-300 sm:text-xs">
+                        Teams
+                      </div>
+                      <div className="aa-display mt-1 text-2xl text-amber-300 sm:text-3xl">
+                        {snapshot?.dashboardSummary?.total_teams ?? teams?.length ?? 0}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-8">
+                    <a
+                      href={`/live/${publicSlug}/dashboard`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 px-6 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-sky-500/30 transition hover:from-sky-400 hover:to-blue-500 sm:text-sm"
                     >
-                      ₹{formatAmount(currentBid)}
-                    </div>
-                    <div className="mt-3 flex w-full max-w-[420px] items-center justify-center gap-3 rounded-lg border border-sky-400/40 bg-[#030b1f]/60 px-3 py-1.5">
-                      <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/80 sm:text-xs">
-                        Base Price
-                      </span>
-                      <span className="aa-display text-xl leading-tight text-white sm:text-2xl">
-                        ₹{formatAmount(basePrice)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex min-w-0 items-center justify-center border-t border-sky-400/30 pt-4 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
-                    <LeadingTeamBadge name={leadingTeamName} logoUrl={leadingTeamLogo} />
+                      View Full Rosters & Results
+                    </a>
                   </div>
                 </div>
-
-                {/* Player stats (hidden when no stat has a value) */}
-                {filledStats.length > 0 && (
-                  <div
-                    className="grid grid-cols-3 gap-2 sm:gap-3 lg:[grid-template-columns:repeat(var(--cols),minmax(0,1fr))]"
-                    style={{ "--cols": statCols }}
-                  >
-                    {filledStats.map((stat, i) => (
-                      <StatBox key={`${stat.label}-${i}`} label={stat.label} value={stat.value} />
-                    ))}
-                  </div>
-                )}
               </div>
-            </div>
+            ) : (
+              <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] md:gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+                {/* PHOTO (solid background) */}
+                <div className="relative mx-auto w-full max-w-[380px] md:mx-0 md:max-w-none">
+                  <PlayerPhoto
+                    url={currentPlayer?.photo_url}
+                    name={currentPlayer?.player_name}
+                    className="aspect-[4/5] w-full md:aspect-auto md:h-full md:min-h-[420px] lg:min-h-[480px]"
+                  />
+                </div>
+
+                {/* DETAILS PANEL */}
+                <div className={`${PANEL} flex min-w-0 flex-col justify-center gap-3 p-3 sm:gap-4 sm:p-5`}>
+                  {/* Name + role + category */}
+                  <div className="flex flex-col items-center text-center md:items-start md:text-left">
+                    <PlayerName
+                      as="h2"
+                      name={currentPlayer?.player_name}
+                      serial={currentPlayer?.serial_number}
+                      jersey={currentPlayer?.jersey_number}
+                      className="text-[clamp(40px,5.4vw,96px)]"
+                    />
+                    <RoleLine role={currentPlayer?.player_role} category={currentPlayer?.category} />
+                  </div>
+
+                  {/* Age + Area */}
+                  <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                    <InfoBox icon={CalendarDays} label="Age" value={currentPlayer?.age || "-"} />
+                    <InfoBox icon={MapPin} label="Area" value={currentPlayer?.area || "-"} />
+                  </div>
+
+                  {/* Current bid + leading team */}
+                  <div className={`${INNER} grid gap-4 p-3 sm:p-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:items-center`}>
+                    <div className="flex min-w-0 flex-col items-center text-center">
+                      <div className="text-xs font-black uppercase tracking-[0.2em] text-white sm:text-sm">
+                        Current Bid
+                      </div>
+                      <div
+                        className={`aa-display mt-1 max-w-full text-[clamp(44px,12vw,76px)] leading-none [filter:drop-shadow(0_0_18px_rgba(255,190,40,0.45))] lg:text-[clamp(40px,4.6vw,80px)] ${GOLD_TEXT}`}
+                      >
+                        {formatAmount(currentBid)}
+                      </div>
+                      <div className="mt-3 flex w-full max-w-[420px] items-center justify-center gap-3 rounded-lg border border-sky-400/40 bg-[#030b1f]/60 px-3 py-1.5">
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/80 sm:text-xs">
+                          Base Price
+                        </span>
+                        <span className="aa-display text-xl leading-tight text-white sm:text-2xl">
+                          {formatAmount(basePrice)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex min-w-0 items-center justify-center border-t border-sky-400/30 pt-4 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
+                      <LeadingTeamBadge name={leadingTeamName} logoUrl={leadingTeamLogo} />
+                    </div>
+                  </div>
+
+                  {/* Player stats (hidden when no stat has a value) */}
+                  {filledStats.length > 0 && (
+                    <div
+                      className="grid grid-cols-3 gap-2 sm:gap-3 lg:[grid-template-columns:repeat(var(--cols),minmax(0,1fr))]"
+                      style={{ "--cols": statCols }}
+                    >
+                      {filledStats.map((stat, i) => (
+                        <StatBox key={`${stat.label}-${i}`} label={stat.label} value={stat.value} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </main>
 
           {/* Debug: open the page with ?debug=1 to see the fields the server sends */}
@@ -1156,7 +1241,7 @@ function CelebrationOverlay({ celebration, onClose }) {
               <div
                 className={`aa-display mt-1 text-[clamp(44px,8vw,96px)] leading-none [filter:drop-shadow(0_0_20px_rgba(255,190,40,0.5))] ${GOLD_TEXT}`}
               >
-                ₹{formatAmount(celebration.amount)}
+                {formatAmount(celebration.amount)}
               </div>
 
               <div className="mt-4 flex items-center justify-center gap-4 border-t border-sky-400/30 pt-4 md:justify-start">

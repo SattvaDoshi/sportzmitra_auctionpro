@@ -397,7 +397,7 @@ function pdfDrawPlayerCard(doc, player, photo, x, y) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.setTextColor(...PDF_PINK);
-  doc.text(`Rs. ${Number(player.base_price || 0).toLocaleString("en-IN")}`, cx + 12.5, boxY + boxH * 0.7, { baseline: "middle" });
+  doc.text(`${Number(player.base_price || 0).toLocaleString("en-IN")}`, cx + 12.5, boxY + boxH * 0.7, { baseline: "middle" });
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1028,7 +1028,7 @@ export default function PlayersPage() {
                       {activeFocusPlayer.status === "SOLD" ? "Final sold price" : "Base price"}
                     </span>
                     <span className="mt-1.5 block font-mono text-4xl font-black tabular-nums text-emerald-400">
-                      ₹{money(activeFocusPlayer.sold_price || activeFocusPlayer.base_price)}
+                      {money(activeFocusPlayer.sold_price || activeFocusPlayer.base_price)}
                     </span>
                   </div>
 
@@ -1155,7 +1155,7 @@ export default function PlayersPage() {
 
                         <div className="flex items-center justify-between pt-2 border-t border-slate-100 mt-2">
                           <span className="font-mono font-bold text-slate-900 text-sm tabular-nums">
-                            ₹{money(player.base_price)}
+                            {money(player.base_price)}
                           </span>
                           <StatusBadge status={player.status} />
                         </div>
@@ -1226,7 +1226,7 @@ function PlayerForm({ title, form, setForm, onSubmit, onClose, onPhotoUpload, up
           <div className="text-xs text-pink-800">
             <span className="font-bold">Player is SOLD</span> to{" "}
             <span className="font-semibold">{editingPlayer.sold_team_name || "a team"}</span> for{" "}
-            <span className="font-semibold">₹{money(editingPlayer.sold_price)}</span>.
+            <span className="font-semibold">{money(editingPlayer.sold_price)}</span>.
             <div className="mt-0.5 text-pink-700/80">
               To move this player to another team or change sold status/price, use the Correction feature.
             </div>
@@ -1337,7 +1337,7 @@ function CorrectionModal({ player, teams, correction, setCorrection, onSubmit, o
           <select value={correction.sold_team_id || ""} onChange={(e) => set("sold_team_id", e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-900 outline-none focus:border-pink-400 focus:ring-2 focus:ring-pink-500/15">
             <option value="">No team</option>
             {teams.map((t) => (
-              <option key={t.id} value={t.id}>{t.team_name} — Left ₹{money(t.remaining_purse)}</option>
+              <option key={t.id} value={t.id}>{t.team_name} — Left {money(t.remaining_purse)}</option>
             ))}
           </select>
         </label>
@@ -1387,7 +1387,7 @@ function HistoryList({ title, rows = [] }) {
         {rows.length === 0 && <div className="py-2 text-slate-400">No records found</div>}
         {rows.map((r, i) => (
           <div key={r.id || i} className="rounded-lg border border-slate-200 bg-white p-3">
-            <div className="font-semibold text-slate-900">{r.action_type || r.result || r.team_name || `Bid ₹${r.bid_amount}`}</div>
+            <div className="font-semibold text-slate-900">{r.action_type || r.result || r.team_name || `Bid ${r.bid_amount}`}</div>
             <div className="mt-0.5 text-[11px] text-slate-400">{r.reason || r.created_at}</div>
           </div>
         ))}

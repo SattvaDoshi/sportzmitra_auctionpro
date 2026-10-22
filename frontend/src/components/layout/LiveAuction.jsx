@@ -97,8 +97,8 @@ export default function LiveAuctionTicker({ currentPlayer, nextPlayer, youtubeUr
 
               {/* Player Stats (Base Price, Current Bid, Time Left) */}
               <div className="ml-auto flex shrink-0 items-center gap-2 lg:gap-4 xl:gap-6">
-                <StatBlock label="Base Price" value={`₹ ${formatAmount(player.basePrice)}`} color="text-[#e91e63]" />
-                <StatBlock label="Current Bid" value={`₹ ${formatAmount(player.currentBid)}`} color="text-[#00c853]" />
+                <StatBlock label="Base Price" value={`${formatAmount(player.basePrice)}`} color="text-[#e91e63]" />
+                <StatBlock label="Current Bid" value={`${formatAmount(player.currentBid)}`} color="text-[#00c853]" />
                 
                 <div className="flex flex-col">
                   <span className="text-[8px] font-bold uppercase tracking-wide text-slate-400 lg:text-[9px]">Time Left</span>
@@ -183,8 +183,8 @@ export default function LiveAuctionTicker({ currentPlayer, nextPlayer, youtubeUr
           </div>
 
           <div className="grid grid-cols-3 divide-x divide-[#e91e63]/10 border-t border-[#e91e63]/10 bg-white text-center">
-            <StatBlockMobile label="Base Price" value={`₹ ${formatAmount(player.basePrice)}`} />
-            <StatBlockMobile label="Current Bid" value={`₹ ${formatAmount(player.currentBid)}`} accent />
+            <StatBlockMobile label="Base Price" value={`${formatAmount(player.basePrice)}`} />
+            <StatBlockMobile label="Current Bid" value={`${formatAmount(player.currentBid)}`} accent />
             <StatBlockMobile
               label="Time Left"
               value={`${String(Math.floor((player.timeLeft || 0) / 60)).padStart(2, "0")}:${String(

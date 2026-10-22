@@ -233,12 +233,64 @@ async function autoSelectNextIfRandom(auctionId, userId) {
     return { mode, suggested, autoSelected: true };
   }
 
+  if (!suggested?.id) {
+    const [[{ pendingCount }]] = await pool.query(
+      `SELECT COUNT(*) AS pendingCount FROM players
+       WHERE auction_id = ? AND status IN ('AVAILABLE', 'IN_AUCTION') AND COALESCE(is_deleted, 0) = 0`,
+      [auctionId]
+    );
+
+    if (pendingCount === 0) {
+      await pool.query(
+        `UPDATE auction_state
+         SET state = 'COMPLETED',
+             current_player_id = NULL,
+             current_bid = 0,
+             highest_team_id = NULL,
+             suggested_player_id = NULL,
+             updated_by_user_id = ?,
+             updated_at = NOW()
+         WHERE auction_id = ?`,
+        [userId, auctionId]
+      );
+      await pool.query(
+        `UPDATE auctions
+         SET status = 'COMPLETED',
+             completed_at = COALESCE(completed_at, NOW())
+         WHERE id = ?`,
+        [auctionId]
+      );
+      return { mode, suggested: null, autoSelected: false, completed: true };
+    }
+  }
+
   return { mode, suggested, autoSelected: false };
 }
 
 async function loadSnapshot(auctionId) {
   const [resultSets] = await pool.query("CALL sp_get_public_auction_snapshot(?)", [auctionId]);
   const snapshot = mapPublicSnapshot(resultSets);
+
+  // If all players are cleared from pending and current player is inactive/sold/unsold, ensure completed state
+  const isPendingCleared =
+    (snapshot.dashboardSummary?.pending_players === 0 || (snapshot.pendingPlayers && snapshot.pendingPlayers.length === 0)) &&
+    ((snapshot.dashboardSummary?.total_players || 0) > 0 || (snapshot.soldPlayers?.length || 0) > 0);
+
+  if (isPendingCleared && (!snapshot.state?.current_player_id || ["SOLD", "UNSOLD", "FINAL_UNSOLD", "COMPLETED"].includes(snapshot.state?.state))) {
+    if (snapshot.state) {
+      snapshot.state.state = "COMPLETED";
+      snapshot.state.current_player_id = null;
+      snapshot.state.player_name = null;
+      snapshot.state.photo_url = null;
+      snapshot.state.current_bid = 0;
+      snapshot.state.highest_team_id = null;
+      snapshot.state.highest_team_name = null;
+    }
+    if (snapshot.auction) {
+      snapshot.auction.status = "COMPLETED";
+    }
+  }
+
   return await augmentSnapshotWithMaxBids(snapshot, auctionId);
 }
 
@@ -578,7 +630,7 @@ router.patch(
         }
         const teamMaxBid = await getTeamMaxBid(pool, auctionId, teamId, currentPlayerForMaxBid);
         if (teamMaxBid > 0 && bidAmount > teamMaxBid) {
-          throw new Error(`Bid of ₹${bidAmount.toLocaleString('en-IN')} exceeds max allowed bid of ₹${teamMaxBid.toLocaleString('en-IN')} for this team`);
+          throw new Error(`Bid of ${bidAmount.toLocaleString('en-IN')} exceeds max allowed bid of ${teamMaxBid.toLocaleString('en-IN')} for this team`);
         }
       }
 

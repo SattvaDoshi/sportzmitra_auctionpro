@@ -38,7 +38,7 @@ export default function SoldPlayersPanel({ soldPlayers = [] }) {
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center rounded-xl bg-[#8DC63F]/15 px-3 py-1.5 text-xs font-black text-[#4b7318]">
-                  ₹{Number(player.sold_price || 0).toLocaleString("en-IN")}
+                  {Number(player.sold_price || 0).toLocaleString("en-IN")}
                 </div>
               </div>
             </div>

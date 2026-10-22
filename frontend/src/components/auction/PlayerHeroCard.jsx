@@ -42,7 +42,7 @@ export default function PlayerHeroCard({ liveState, auctionType }) {
               Category: {liveState?.category || "-"}
             </span>
             <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-1.5 text-xs font-black uppercase tracking-wider text-slate-700">
-              Base ₹{basePrice} {auctionType}
+              Base {basePrice} {auctionType}
             </span>
           </div>
         </div>
@@ -71,7 +71,7 @@ export default function PlayerHeroCard({ liveState, auctionType }) {
               </span>
             </div>
             <div className="mt-1 text-3xl font-black text-slate-900 sm:text-4xl lg:text-5xl">
-              ₹{currentBid}
+              {currentBid}
             </div>
           </div>
 

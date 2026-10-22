@@ -845,7 +845,7 @@ router.get(
             rank: idx + 1,
             id: t.id,
             name: t.team_name,
-            purse: `₹${remainingPurse.toLocaleString("en-IN")}`,
+            purse: `${remainingPurse.toLocaleString("en-IN")}`,
             remainingPurse,
             totalPurse,
             percent,
@@ -880,7 +880,7 @@ router.get(
           id: p.id,
           name: p.serial_number ? `${p.serial_number} - ${p.player_name}` : p.player_name,
           team: p.team_name || "—",
-          amount: `₹${Number(p.sold_price || 0).toLocaleString("en-IN")}`,
+          amount: `${Number(p.sold_price || 0).toLocaleString("en-IN")}`,
           soldAt: p.sold_at,
           time: p.sold_at
             ? new Date(p.sold_at).toLocaleTimeString("en-IN", {

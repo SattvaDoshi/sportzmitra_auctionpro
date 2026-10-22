@@ -10,7 +10,7 @@ import {
   X,
   MapPin,
   Search,
-  IndianRupee,
+  Coins,
   Wallet,
   Radio,
   Clock,
@@ -615,12 +615,12 @@ export default function AuctionList() {
                     <DetailChip label="Flow mode" value={flowText} title={flowText} />
                     <DetailChip
                       label="Base / Increment"
-                      value={`₹${auction.default_base_price || 0} / ₹${auction.minimum_bid_increment || 100}`}
-                      icon={IndianRupee}
+                      value={`${auction.default_base_price || 0} / ${auction.minimum_bid_increment || 100}`}
+                      icon={Coins}
                     />
                     <DetailChip
                       label="Purse / Players"
-                      value={`₹${auction.total_purse_per_team || 0} · ${auction.players_per_team || 0}/team`}
+                      value={`${auction.total_purse_per_team || 0} · ${auction.players_per_team || 0}/team`}
                       icon={Wallet}
                     />
                   </div>
@@ -871,7 +871,7 @@ function AuctionForm({
 
       <FormSection label="Money & squad">
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-          <Field label="Default Base Price (₹)">
+          <Field label="Default Base Price">
             <input
               type="number"
               name="default_base_price"
@@ -881,7 +881,7 @@ function AuctionForm({
             />
           </Field>
 
-          <Field label="Bid Increment Step (₹)">
+          <Field label="Bid Increment Step">
             <input
               type="number"
               name="minimum_bid_increment"
@@ -891,7 +891,7 @@ function AuctionForm({
             />
           </Field>
 
-          <Field label="Total Purse Per Team (₹)">
+          <Field label="Total Purse Per Team">
             <input
               type="number"
               name="total_purse_per_team"
@@ -948,8 +948,8 @@ function AuctionForm({
                 <thead>
                   <tr className="border-b border-slate-200 text-xs font-semibold text-slate-400">
                     <th className="py-2.5 pr-2">Category Name</th>
-                    <th className="py-2.5 pr-2">Base Price (₹)</th>
-                    <th className="py-2.5 pr-2">Bid Increment (₹)</th>
+                    <th className="py-2.5 pr-2">Base Price</th>
+                    <th className="py-2.5 pr-2">Bid Increment</th>
                     <th className="py-2.5 pr-2">Order</th>
                     <th className="py-2.5 pr-2">Max Players</th>
                     <th className="py-2.5 text-right">Action</th>
