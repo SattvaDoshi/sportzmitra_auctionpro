@@ -356,43 +356,27 @@ if [ ! -f /etc/letsencrypt/ssl-dhparams.pem ]; then
   openssl dhparam -out /etc/letsencrypt/ssl-dhparams.pem 2048
 fi
 
-# ── Temporary HTTP config to allow certbot webroot verification without stopping Nginx
-cat > /etc/nginx/sites-available/sportzmitra-uat <<ACME_NGINX
-# Temporary HTTP config for ACME challenge
-server {
-    listen 80;
-    listen [::]:80;
-    server_name ${FRONTEND_DOMAIN} ${API_DOMAIN};
+# Stop nginx for a few seconds so certbot can bind port 80 cleanly without Nginx conflicts
+systemctl stop nginx 2>/dev/null || true
+pkill -f "nginx" 2>/dev/null || true
+sleep 2
 
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
-
-    location / {
-        return 200 "SportzMitra UAT initialization in progress\n";
-    }
-}
-ACME_NGINX
-
-ln -sf /etc/nginx/sites-available/sportzmitra-uat /etc/nginx/sites-enabled/sportzmitra-uat
-nginx -t && systemctl reload nginx
-
-# Request certificate for Frontend domain via webroot (Nginx stays running!)
+# Request certificate for Frontend domain (standalone)
 if [ ! -f "/etc/letsencrypt/live/${FRONTEND_DOMAIN}/fullchain.pem" ]; then
   info "Requesting Let's Encrypt certificate for ${FRONTEND_DOMAIN} ..."
-  certbot certonly --webroot -w /var/www/certbot \
+  certbot certonly --standalone \
     -d "${FRONTEND_DOMAIN}" \
     --email "${LE_EMAIL}" \
-    --agree-tos --non-interactive || warn "Certbot failed for ${FRONTEND_DOMAIN}. Verify DNS A-record points to ${SERVER_IP}."
+    --agree-tos --non-interactive || warn "Certbot failed for ${FRONTEND_DOMAIN}."
 fi
 
-# Request certificate for API domain via webroot
+# Request certificate for API domain (standalone)
 if [ ! -f "/etc/letsencrypt/live/${API_DOMAIN}/fullchain.pem" ]; then
   info "Requesting Let's Encrypt certificate for ${API_DOMAIN} ..."
-  certbot certonly --webroot -w /var/www/certbot \
+  certbot certonly --standalone \
     -d "${API_DOMAIN}" \
     --email "${LE_EMAIL}" \
-    --agree-tos --non-interactive || warn "Certbot failed for ${API_DOMAIN}. Verify DNS A-record points to ${SERVER_IP}."
+    --agree-tos --non-interactive || warn "Certbot failed for ${API_DOMAIN}."
 fi
 
 # Fallback self-signed cert if DNS has not propagated yet, so Nginx never fails
@@ -422,7 +406,6 @@ upstream sportzmitra_uat_api {
 
 server {
     listen 80;
-    listen [::]:80;
     server_name ${FRONTEND_DOMAIN};
     location /.well-known/acme-challenge/ { root /var/www/certbot; }
     location / { return 301 https://\$host\$request_uri; }
@@ -430,7 +413,6 @@ server {
 
 server {
     listen 443 ssl http2;
-    listen [::]:443 ssl http2;
     server_name ${FRONTEND_DOMAIN};
 
     ssl_certificate     /etc/letsencrypt/live/${FRONTEND_DOMAIN}/fullchain.pem;
@@ -467,7 +449,6 @@ server {
 
 server {
     listen 80;
-    listen [::]:80;
     server_name ${API_DOMAIN};
     location /.well-known/acme-challenge/ { root /var/www/certbot; }
     location / { return 301 https://\$host\$request_uri; }
@@ -475,7 +456,6 @@ server {
 
 server {
     listen 443 ssl http2;
-    listen [::]:443 ssl http2;
     server_name ${API_DOMAIN};
 
     ssl_certificate     /etc/letsencrypt/live/${API_DOMAIN}/fullchain.pem;
