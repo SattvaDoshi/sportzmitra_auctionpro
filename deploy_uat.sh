@@ -193,13 +193,22 @@ fi
 section "STEP 4 · Database & Schema"
 
 # Create the dedicated UAT database without touching any other databases
-$MYSQL_ROOT_CMD <<MYSQL_SETUP
-  CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`
-    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-  GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'127.0.0.1';
-  GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';
-  FLUSH PRIVILEGES;
+if [ "$DB_USER" = "root" ]; then
+  $MYSQL_ROOT_CMD <<MYSQL_SETUP
+    CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`
+      CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 MYSQL_SETUP
+else
+  $MYSQL_ROOT_CMD <<MYSQL_SETUP
+    CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`
+      CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    CREATE USER IF NOT EXISTS '${DB_USER}'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY '${DB_PASS}';
+    CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_PASS}';
+    GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'127.0.0.1';
+    GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';
+    FLUSH PRIVILEGES;
+MYSQL_SETUP
+fi
 
 success "Database '${DB_NAME}' created/verified."
 
