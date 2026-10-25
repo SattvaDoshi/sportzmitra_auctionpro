@@ -361,6 +361,23 @@ systemctl stop nginx 2>/dev/null || true
 pkill -f "nginx" 2>/dev/null || true
 sleep 2
 
+# Handle case where Certbot created certificate lineage under -0001
+for DOM in "${FRONTEND_DOMAIN}" "${API_DOMAIN}"; do
+  if [ -d "/etc/letsencrypt/live/${DOM}-0001" ]; then
+    info "Linking ${DOM}-0001 to ${DOM}..."
+    rm -rf "/etc/letsencrypt/live/${DOM}"
+    ln -sf "/etc/letsencrypt/live/${DOM}-0001" "/etc/letsencrypt/live/${DOM}"
+  fi
+done
+
+# Clean up any temporary self-signed certificates so Certbot does not error on "live directory exists"
+for DOM in "${FRONTEND_DOMAIN}" "${API_DOMAIN}"; do
+  if [ -d "/etc/letsencrypt/live/${DOM}" ] && [ ! -L "/etc/letsencrypt/live/${DOM}" ] && [ ! -L "/etc/letsencrypt/live/${DOM}/fullchain.pem" ]; then
+    info "Removing temporary self-signed cert directory for ${DOM}..."
+    rm -rf "/etc/letsencrypt/live/${DOM}" "/etc/letsencrypt/archive/${DOM}"
+  fi
+done
+
 # Request certificate for Frontend domain (standalone)
 if [ ! -f "/etc/letsencrypt/live/${FRONTEND_DOMAIN}/fullchain.pem" ]; then
   info "Requesting Let's Encrypt certificate for ${FRONTEND_DOMAIN} ..."
