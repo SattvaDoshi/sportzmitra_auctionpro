@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# =============================================================================
+# SportzMitra AuctionPro — Lightweight Update Script (UAT Environment)
+# Target: 1 vCPU · 4 GB RAM · 50 GB NVMe · Ubuntu 22.04 LTS
+# Run this on the UAT VPS after pushing code changes to GitHub.
+#
+# Usage:  sudo bash /var/www/sportzmitra_auctionpro/update_uat.sh
+# =============================================================================
+set -euo pipefail
+
+REPO_DIR="/var/www/sportzmitra_auctionpro"
+APP_DIR="/var/www/sportzmitra"
+FRONTEND_DOMAIN="auction2.sportzmitrastore.com"
+API_DOMAIN="api2.auction.sportzmitrastore.com"
+
+GREEN="\033[0;32m"; YELLOW="\033[1;33m"; RED="\033[0;31m"; RESET="\033[0m"; BOLD="\033[1m"
+info()    { echo -e "${BOLD}[INFO]${RESET}  $*"; }
+success() { echo -e "${GREEN}[OK]${RESET}    $*"; }
+warn()    { echo -e "${YELLOW}[WARN]${RESET}  $*"; }
+
+echo -e "${BOLD}${GREEN}"
+echo "  ┌──────────────────────────────────────────────┐"
+echo "  │   SportzMitra — Updating UAT App (Live)      │"
+echo "  └──────────────────────────────────────────────┘"
+echo -e "${RESET}"
+
+# =============================================================================
+# 0. Ensure Node.js 22 LTS is installed (fixes googleapis EBADENGINE warnings)
+# =============================================================================
+NODE_MAJOR=$(node -v 2>/dev/null | grep -oP '(?<=v)\d+' | head -1 || echo "0")
+if [[ "$NODE_MAJOR" -lt 22 ]]; then
+  info "Node.js v${NODE_MAJOR} detected — upgrading to Node.js 22 LTS..."
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  apt-get install -y nodejs
+  # Reinstall PM2 globally with the new Node
+  npm install -g pm2@latest
+  success "Node.js $(node -v) installed."
+else
+  success "Node.js $(node -v) — already on v22+, no upgrade needed."
+fi
+
+# =============================================================================
+# 1. Pull latest code from GitHub
+# =============================================================================
+info "Pulling latest code from GitHub..."
+cd "$REPO_DIR"
+git pull origin main
+success "Git pull complete."
+
+# =============================================================================
+# 2. Sync & update backend
+# =============================================================================
+info "Syncing backend files..."
+rsync -a --exclude='node_modules' --exclude='.env' --exclude='logs' \
+  "$REPO_DIR/backend/" "$APP_DIR/backend/"
+success "Backend files synced."
+
+# Remove any broken/partial opencv install that may block npm install
+info "Cleaning any broken native module installs..."
+cd "$APP_DIR/backend"
+npm uninstall @u4/opencv4nodejs 2>/dev/null || true
+rm -rf node_modules/@u4 2>/dev/null || true
+
+info "Installing backend dependencies (if any changed)..."
+npm install --omit=dev --ignore-engines
+success "Backend dependencies up to date."
+
+# Run migrations in case schema changed
+info "Running database migrations..."
+npm run migrate 2>/dev/null && success "Migrations complete." \
+  || warn "Migration runner not found or no new migrations — skipping."
+
+# =============================================================================
+# 3. Sync & rebuild frontend (configured for UAT)
+# =============================================================================
+info "Syncing frontend files..."
+rsync -a --exclude='node_modules' --exclude='dist' \
+  "$REPO_DIR/frontend/" "$APP_DIR/frontend/"
+success "Frontend files synced."
+
+# Explicitly ensure UAT Vite environment endpoints
+cat > "$APP_DIR/frontend/.env.production" <<VENV
+VITE_API_BASE_URL=https://${API_DOMAIN}/api
+VITE_SOCKET_URL=https://${API_DOMAIN}
+VITE_API_ROOT=https://${API_DOMAIN}
+VENV
+
+info "Installing frontend dependencies (if any changed)..."
+cd "$APP_DIR/frontend"
+npm install --ignore-engines
+success "Frontend dependencies up to date."
+
+info "Building frontend for UAT production..."
+NODE_OPTIONS="--max-old-space-size=1536" npm run build
+success "Frontend build complete."
+
+# =============================================================================
+# 4. Update PM2 memory limit & reload (zero-downtime)
+# =============================================================================
+info "Updating PM2 memory limit to 512M..."
+pm2 set sportzmitra-auction:max_memory_restart 512M 2>/dev/null || true
+
+info "Reloading PM2 workers (zero-downtime)..."
+pm2 reload sportzmitra-auction || pm2 start "$APP_DIR/backend/ecosystem.config.js" --env production
+pm2 save
+success "PM2 reloaded."
+
+# =============================================================================
+# 5. Health check
+# =============================================================================
+sleep 2
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:5000/health" || echo "000")
+if [[ "$HTTP_STATUS" == "200" ]]; then
+  success "Backend health check PASSED"
+else
+  warn "Backend health check returned HTTP $HTTP_STATUS — check with: pm2 logs sportzmitra-auction"
+fi
+
+echo ""
+echo -e "${BOLD}${GREEN}UAT Update complete!${RESET}"
+echo "  Frontend: https://${FRONTEND_DOMAIN}"
+echo "  API:      https://${API_DOMAIN}"
+echo "  Node.js:  $(node -v)"
+echo "  PM2:      $(pm2 -v)"
+echo ""
