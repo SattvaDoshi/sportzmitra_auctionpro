@@ -2,14 +2,23 @@
 # =============================================================================
 # SportzMitra AuctionPro — Lightweight Update Script (UAT Environment)
 # Target: 1 vCPU · 4 GB RAM · 50 GB NVMe · Ubuntu 22.04 LTS
-# Run this on the UAT VPS after pushing code changes to GitHub.
+# Backend Port: 5001 (isolated from existing port 5000 service)
+# PM2 App Name: sportzmitra-auction-uat
+# App Directory: /var/www/sportzmitra_uat
 #
 # Usage:  sudo bash /var/www/sportzmitra_auctionpro/update_uat.sh
 # =============================================================================
 set -euo pipefail
 
-REPO_DIR="/var/www/sportzmitra_auctionpro"
-APP_DIR="/var/www/sportzmitra"
+if [ -d "/var/www/sportzmitra_auctionpro_uat" ]; then
+  REPO_DIR="/var/www/sportzmitra_auctionpro_uat"
+else
+  REPO_DIR="/var/www/sportzmitra_auctionpro"
+fi
+
+APP_DIR="/var/www/sportzmitra_uat"
+PM2_APP_NAME="sportzmitra-auction-uat"
+BACKEND_PORT="5001"
 FRONTEND_DOMAIN="auction2.sportzmitrastore.com"
 API_DOMAIN="api2.auction.sportzmitrastore.com"
 
@@ -20,7 +29,7 @@ warn()    { echo -e "${YELLOW}[WARN]${RESET}  $*"; }
 
 echo -e "${BOLD}${GREEN}"
 echo "  ┌──────────────────────────────────────────────┐"
-echo "  │   SportzMitra — Updating UAT App (Live)      │"
+echo "  │   SportzMitra — Updating UAT App (Port 5001) │"
 echo "  └──────────────────────────────────────────────┘"
 echo -e "${RESET}"
 
@@ -32,7 +41,6 @@ if [[ "$NODE_MAJOR" -lt 22 ]]; then
   info "Node.js v${NODE_MAJOR} detected — upgrading to Node.js 22 LTS..."
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
   apt-get install -y nodejs
-  # Reinstall PM2 globally with the new Node
   npm install -g pm2@latest
   success "Node.js $(node -v) installed."
 else
@@ -50,13 +58,13 @@ success "Git pull complete."
 # =============================================================================
 # 2. Sync & update backend
 # =============================================================================
-info "Syncing backend files..."
+info "Syncing backend files to $APP_DIR/backend..."
 rsync -a --exclude='node_modules' --exclude='.env' --exclude='logs' \
   "$REPO_DIR/backend/" "$APP_DIR/backend/"
 success "Backend files synced."
 
-# Remove any broken/partial opencv install that may block npm install
-info "Cleaning any broken native module installs..."
+# Clean broken native module installs
+info "Cleaning native module cache..."
 cd "$APP_DIR/backend"
 npm uninstall @u4/opencv4nodejs 2>/dev/null || true
 rm -rf node_modules/@u4 2>/dev/null || true
@@ -73,7 +81,7 @@ npm run migrate 2>/dev/null && success "Migrations complete." \
 # =============================================================================
 # 3. Sync & rebuild frontend (configured for UAT)
 # =============================================================================
-info "Syncing frontend files..."
+info "Syncing frontend files to $APP_DIR/frontend..."
 rsync -a --exclude='node_modules' --exclude='dist' \
   "$REPO_DIR/frontend/" "$APP_DIR/frontend/"
 success "Frontend files synced."
@@ -90,36 +98,37 @@ cd "$APP_DIR/frontend"
 npm install --ignore-engines
 success "Frontend dependencies up to date."
 
-info "Building frontend for UAT production..."
+info "Building frontend for UAT production (memory constrained)..."
 NODE_OPTIONS="--max-old-space-size=1536" npm run build
 success "Frontend build complete."
 
 # =============================================================================
-# 4. Update PM2 memory limit & reload (zero-downtime)
+# 4. Update PM2 memory limit & reload isolated app (zero-downtime)
 # =============================================================================
-info "Updating PM2 memory limit to 512M..."
-pm2 set sportzmitra-auction:max_memory_restart 512M 2>/dev/null || true
+info "Updating PM2 memory limit for ${PM2_APP_NAME} to 512M..."
+pm2 set "${PM2_APP_NAME}":max_memory_restart 512M 2>/dev/null || true
 
-info "Reloading PM2 workers (zero-downtime)..."
-pm2 reload sportzmitra-auction || pm2 start "$APP_DIR/backend/ecosystem.config.js" --env production
+info "Reloading PM2 process ${PM2_APP_NAME}..."
+pm2 reload "${PM2_APP_NAME}" 2>/dev/null || pm2 start "$APP_DIR/backend/ecosystem.config.js" --name "${PM2_APP_NAME}" --env production
 pm2 save
-success "PM2 reloaded."
+success "PM2 (${PM2_APP_NAME}) reloaded."
 
 # =============================================================================
-# 5. Health check
+# 5. Health check on port 5001
 # =============================================================================
 sleep 2
-HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:5000/health" || echo "000")
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${BACKEND_PORT}/health" || echo "000")
 if [[ "$HTTP_STATUS" == "200" ]]; then
-  success "Backend health check PASSED"
+  success "Backend health check PASSED on port ${BACKEND_PORT} (HTTP $HTTP_STATUS)"
 else
-  warn "Backend health check returned HTTP $HTTP_STATUS — check with: pm2 logs sportzmitra-auction"
+  warn "Backend health check returned HTTP $HTTP_STATUS — check with: pm2 logs ${PM2_APP_NAME}"
 fi
 
 echo ""
 echo -e "${BOLD}${GREEN}UAT Update complete!${RESET}"
 echo "  Frontend: https://${FRONTEND_DOMAIN}"
 echo "  API:      https://${API_DOMAIN}"
+echo "  Backend:  127.0.0.1:${BACKEND_PORT} (PM2: ${PM2_APP_NAME})"
 echo "  Node.js:  $(node -v)"
 echo "  PM2:      $(pm2 -v)"
 echo ""
