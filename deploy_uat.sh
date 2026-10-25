@@ -61,6 +61,8 @@ APP_DIR="/var/www/sportzmitra_uat"
 PM2_APP_NAME="sportzmitra-auction-uat"
 BACKEND_PORT="5001"
 
+DB_HOST="127.0.0.1"
+DB_PORT="3306"
 DB_ROOT_PASS="SportzM@4321"
 DB_NAME="sportzmitra_auction"
 DB_USER="root"
@@ -144,21 +146,21 @@ section "STEP 3 · MySQL Connection & Safe Tuning"
 # Ensure MySQL service is running
 systemctl start mysql 2>/dev/null || true
 
-# Test root connection (NEVER purge MySQL on a multi-app server)
-if mysql --user=root --password="${DB_ROOT_PASS}" -e "QUIT" 2>/dev/null; then
-  MYSQL_ROOT_CMD="mysql --user=root --password=${DB_ROOT_PASS}"
-  success "Connected to MySQL root with password."
-elif mysql --user=root -e "QUIT" 2>/dev/null; then
-  MYSQL_ROOT_CMD="mysql --user=root"
-  info "Connected to MySQL root without password; setting password now..."
-  mysql --user=root <<SETPASS
-    ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_ROOT_PASS}';
-    FLUSH PRIVILEGES;
-SETPASS
-  MYSQL_ROOT_CMD="mysql --user=root --password=${DB_ROOT_PASS}"
-  success "MySQL root password updated."
+# Test TCP connection first (mysql -h 127.0.0.1 -P 3306 -u root -p)
+if mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" -p"${DB_PASS}" -e "QUIT" 2>/dev/null; then
+  MYSQL_ROOT_CMD="mysql -h ${DB_HOST} -P ${DB_PORT} -u ${DB_USER} -p${DB_PASS}"
+  success "Connected to MySQL at ${DB_HOST}:${DB_PORT} as ${DB_USER}."
+elif mysql --user="${DB_USER}" --password="${DB_PASS}" -e "QUIT" 2>/dev/null; then
+  MYSQL_ROOT_CMD="mysql --user=${DB_USER} --password=${DB_PASS}"
+  success "Connected to MySQL via local socket."
+elif mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" -e "QUIT" 2>/dev/null; then
+  MYSQL_ROOT_CMD="mysql -h ${DB_HOST} -P ${DB_PORT} -u ${DB_USER}"
+  success "Connected to MySQL at ${DB_HOST}:${DB_PORT} without password."
+elif mysql --user="${DB_USER}" -e "QUIT" 2>/dev/null; then
+  MYSQL_ROOT_CMD="mysql --user=${DB_USER}"
+  success "Connected to MySQL via local socket without password."
 else
-  die "Could not connect to MySQL as root. Please verify MySQL service and credentials."
+  die "Could not connect to MySQL at ${DB_HOST}:${DB_PORT}. Please verify MySQL credentials."
 fi
 
 # Apply safe tuning config if not already present
@@ -194,7 +196,8 @@ section "STEP 4 · Database & Schema"
 $MYSQL_ROOT_CMD <<MYSQL_SETUP
   CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`
     CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-  GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO 'root'@'localhost';
+  GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'127.0.0.1';
+  GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';
   FLUSH PRIVILEGES;
 MYSQL_SETUP
 
@@ -213,7 +216,7 @@ if [[ -d "$DB_DIR" ]]; then
   do
     if [[ -f "$SQL_FILE" ]]; then
       info "Importing $(basename "$SQL_FILE") into ${DB_NAME} ..."
-      mysql --user="${DB_USER}" --password="${DB_PASS}" "${DB_NAME}" < "$SQL_FILE"
+      $MYSQL_ROOT_CMD "${DB_NAME}" < "$SQL_FILE"
       success "$(basename "$SQL_FILE") imported."
     fi
   done
@@ -239,8 +242,8 @@ cat > "$BACKEND_DIR/.env" <<DOTENV
 NODE_ENV=production
 PORT=${BACKEND_PORT}
 
-DB_HOST=localhost
-DB_PORT=3306
+DB_HOST=${DB_HOST}
+DB_PORT=${DB_PORT}
 DB_NAME=${DB_NAME}
 DB_USER=${DB_USER}
 DB_PASSWORD=${DB_PASS}
