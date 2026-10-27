@@ -127,9 +127,11 @@ function Bar({ pct = 0, color, className = "" }) {
 /* Tablet+ metric box: label, value, progress bar */
 function Metric({ label, value, pct, color, valueClass = "text-slate-900", labelClass }) {
   return (
-    <div className="min-w-0 rounded-xl border bg-white p-2.5 shadow-sm" style={{ borderColor: `${color}40` }}>
-      <div className={`text-[11px] font-black uppercase tracking-wide ${labelClass}`}>{label}</div>
-      <div className={`mt-0.5 break-all text-base font-black leading-tight ${valueClass}`}>{money(value)}</div>
+    <div className="min-w-0 rounded-xl border bg-white p-2 sm:p-2.5 shadow-sm" style={{ borderColor: `${color}40` }}>
+      <div className={`text-[10px] sm:text-[11px] font-black uppercase tracking-wide ${labelClass}`}>{label}</div>
+      <div className={`mt-0.5 whitespace-nowrap text-xs sm:text-sm xl:text-base font-black tabular-nums tracking-tight leading-tight ${valueClass}`}>
+        {money(value)}
+      </div>
       <Bar pct={pct} color={color} className="mt-2 h-1.5" />
     </div>
   );
@@ -139,14 +141,17 @@ function Metric({ label, value, pct, color, valueClass = "text-slate-900", label
 function MaxBid({ value, color, labelClass }) {
   return (
     <div
-      className="flex min-w-0 flex-col justify-center rounded-xl border bg-white p-2.5 shadow-sm lg:col-span-3 lg:flex-row lg:items-center lg:justify-between xl:col-span-1 xl:flex-col xl:items-start xl:justify-center"
+      className="flex min-w-0 flex-col justify-center rounded-xl border bg-white p-2 sm:p-2.5 shadow-sm lg:col-span-3 lg:flex-row lg:items-center lg:justify-between xl:col-span-1 xl:flex-col xl:items-start xl:justify-center"
       style={{ borderColor: `${color}40` }}
     >
-      <div className={`flex items-center gap-1 text-[11px] font-black uppercase tracking-wide ${labelClass}`}>
+      <div className={`flex items-center gap-1 text-[10px] sm:text-[11px] font-black uppercase tracking-wide ${labelClass}`}>
         <Gavel size={13} style={{ color }} className="shrink-0" />
         <span>Max Bid</span>
       </div>
-      <div className="break-all text-xl font-black leading-none xl:mt-1 xl:text-2xl" style={{ color }}>
+      <div
+        className="whitespace-nowrap font-black tabular-nums tracking-tight text-xs sm:text-sm xl:text-base leading-tight mt-0.5 xl:mt-1"
+        style={{ color }}
+      >
         {money(value)}
       </div>
     </div>
@@ -156,9 +161,13 @@ function MaxBid({ value, color, labelClass }) {
 /* Mobile mini metric: tiny label, value, tiny bar */
 function MiniMetric({ label, value, pct, color, valueClass = "text-slate-900", labelClass }) {
   return (
-    <div className="min-w-0">
-      <div className={`truncate text-[8px] font-black uppercase tracking-wide ${labelClass}`}>{label}</div>
-      <div className={`truncate text-[11px] font-black leading-tight ${valueClass}`}>{money(value)}</div>
+    <div className="min-w-0 flex-1">
+      <div className={`truncate text-[7.5px] min-[360px]:text-[8px] font-black uppercase tracking-wide ${labelClass}`}>{label}</div>
+      <div
+        className={`whitespace-nowrap text-[8.5px] min-[360px]:text-[9.5px] min-[400px]:text-[10.5px] font-black tabular-nums tracking-tighter leading-tight ${valueClass}`}
+      >
+        {money(value)}
+      </div>
       <Bar pct={pct} color={color} className="mt-0.5 h-1" />
     </div>
   );
@@ -249,7 +258,7 @@ export default function TeamOverviewCard({
           )}
         </div>
 
-        <div className={`mt-2 grid gap-2 ${showMaxBid ? "grid-cols-4" : "grid-cols-3"}`}>
+        <div className={`mt-2 grid gap-1 min-[360px]:gap-1.5 ${showMaxBid ? "grid-cols-4" : "grid-cols-3"}`}>
           <MiniMetric label="Purse" value={totalPurse} pct={100} color={COLORS.purse} labelClass={theme.label} />
           <MiniMetric label="Spent" value={spent} pct={usedPct} color={COLORS.spent} labelClass={theme.label} />
           <MiniMetric

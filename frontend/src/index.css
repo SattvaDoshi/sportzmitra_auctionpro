@@ -160,3 +160,42 @@ body {
   border-radius: 0.25rem;
   animation: sportzmitra-confetti-fall 2.2s ease-in forwards;
 }
+
+/* =========================================================
+   SPORTZMITRA - YOUTUBE LIVE OVERLAY
+========================================================= */
+
+/* 1. Transparent background */
+html.youtube-overlay-active,
+body.youtube-overlay-active,
+body.youtube-overlay-active #root {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  background: transparent !important;
+  background-image: none !important;
+  overflow: hidden !important;
+}
+
+/* 2. Remove full-screen gradient */
+body.youtube-overlay-active > #root > div:first-child {
+  background: transparent !important;
+  background-image: none !important;
+}
+
+/* 3. Position auction overlay near bottom */
+body.youtube-overlay-active > #root {
+  position: relative !important;
+}
+
+/* 4. Improve text sharpness */
+body.youtube-overlay-active {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 5. Hide unnecessary scrollbars */
+body.youtube-overlay-active ::-webkit-scrollbar {
+  display: none !important;
+}

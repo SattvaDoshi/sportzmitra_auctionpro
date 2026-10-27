@@ -541,9 +541,10 @@ server {
 }
 NGINX
 
-# Test & reload Nginx (zero downtime to existing sites)
-nginx -t && systemctl reload nginx
-success "Nginx reloaded with isolated sportzmitra-uat configuration."
+# Test & start/restart Nginx
+nginx -t && (systemctl restart nginx || systemctl start nginx)
+systemctl enable nginx
+success "Nginx started with isolated sportzmitra-uat configuration."
 
 # Auto-renew via cron if not already present
 if ! crontab -l 2>/dev/null | grep -q 'certbot renew'; then

@@ -57,30 +57,24 @@ export default function LiveAuctionTicker({ currentPlayer, nextPlayer, youtubeUr
 
           <div className="absolute inset-0 flex items-center">
             {/* Pink segment — current player */}
-            <div className="flex h-full w-[78%] items-center gap-2 pl-[1.5%] pr-[4%] lg:gap-3 xl:gap-5">
-              {/* Brand / Title */}
-              <div className="flex shrink-0 items-center gap-1.5 lg:gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#e91e63] text-[#e91e63] lg:h-8 lg:w-8">
-                  <Radio size={14} className="lg:w-4 lg:h-4" />
-                </span>
-                <div className="leading-none">
-                  <p className="text-xs font-black uppercase tracking-tight text-slate-900 lg:text-base xl:text-lg">
-                    <span className="text-[#e91e63]">Live</span> <span>Auction</span>
-                  </p>
-                  <p className="mt-0.5 hidden text-[6px] font-bold uppercase tracking-[0.15em] text-slate-400 lg:block xl:text-[7px]">
-                    Players &bull; Passion &bull; Bigger Dreams
-                  </p>
-                </div>
+            <div className="flex h-full w-[78%] items-center gap-2 pl-[1.5%] pr-[3%] lg:gap-3 xl:gap-4">
+              {/* Brand Logo */}
+              <div className="flex shrink-0 items-center">
+                <img
+                  src="/sportzmitra-logo-transparent.png"
+                  alt="SportzMitra"
+                  className="h-5 w-auto object-contain lg:h-7 xl:h-8"
+                />
               </div>
 
               <div className="h-6 w-px shrink-0 bg-slate-300/60 lg:h-10" />
 
               {/* Player Main Info */}
-              <div className="flex min-w-0 shrink-0 items-center gap-2 lg:gap-3">
+              <div className="flex min-w-0 flex-1 items-center gap-2 lg:gap-3">
                 <img
                   src={player.photo}
                   alt={player.name}
-                  className="h-8 w-8 shrink-0 rounded-xl object-cover object-top ring-2 ring-white lg:h-12 lg:w-12 xl:h-14 xl:w-14"
+                  className="h-10 w-10 shrink-0 rounded-2xl object-cover object-top ring-2 ring-white shadow-md lg:h-14 lg:w-14 xl:h-16 xl:w-16"
                 />
                 <div className="min-w-0">
                   <p className="truncate text-xs font-black text-slate-900 lg:text-lg xl:text-xl">{player.name}</p>
@@ -96,13 +90,28 @@ export default function LiveAuctionTicker({ currentPlayer, nextPlayer, youtubeUr
               </div>
 
               {/* Player Stats (Base Price, Current Bid, Time Left) */}
-              <div className="ml-auto flex shrink-0 items-center gap-2 lg:gap-4 xl:gap-6">
-                <StatBlock label="Base Price" value={`${formatAmount(player.basePrice)}`} color="text-[#e91e63]" />
-                <StatBlock label="Current Bid" value={`${formatAmount(player.currentBid)}`} color="text-[#00c853]" />
+              <div className="ml-auto flex shrink-0 items-center gap-2 lg:gap-3 xl:gap-5">
+                <div className="flex flex-col leading-none">
+                  <span className="text-[7px] font-bold uppercase tracking-wider text-slate-400 lg:text-[8px]">
+                    Base Price
+                  </span>
+                  <span className="font-extrabold tabular-nums text-slate-600 text-[10px] lg:text-xs xl:text-sm mt-0.5">
+                    {formatAmount(player.basePrice)}
+                  </span>
+                </div>
+
+                <div className="flex flex-col leading-none">
+                  <span className="text-[7px] font-black uppercase tracking-wider text-emerald-700 lg:text-[9px]">
+                    Current Bid
+                  </span>
+                  <span className="font-black tabular-nums text-[#00c853] text-sm lg:text-lg xl:text-2xl mt-0.5">
+                    {formatAmount(player.currentBid)}
+                  </span>
+                </div>
                 
-                <div className="flex flex-col">
-                  <span className="text-[8px] font-bold uppercase tracking-wide text-slate-400 lg:text-[9px]">Time Left</span>
-                  <span className="flex items-center gap-1 text-xs font-black tabular-nums text-slate-900 lg:text-sm xl:text-base">
+                <div className="flex flex-col leading-none">
+                  <span className="text-[7px] font-bold uppercase tracking-wide text-slate-400 lg:text-[8px]">Time Left</span>
+                  <span className="flex items-center gap-1 text-[11px] font-black tabular-nums text-slate-900 lg:text-xs xl:text-sm mt-0.5">
                     <Clock3 size={12} className="text-[#e91e63] lg:w-3.5 lg:h-3.5" />
                     {String(Math.floor((player.timeLeft || 0) / 60)).padStart(2, "0")}:
                     {String((player.timeLeft || 0) % 60).padStart(2, "0")}

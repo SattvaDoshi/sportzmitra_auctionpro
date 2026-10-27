@@ -38,7 +38,11 @@ function StatBlockMobile({ label, value, accent }) {
   return (
     <div className="px-2 py-2">
       <p className="text-[8px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
-      <p className={`text-xs font-black tabular-nums ${accent ? "text-[#00c853]" : "text-slate-900"}`}>{value}</p>
+      <p
+        className={`tabular-nums ${accent ? "text-base font-black text-[#00c853]" : "text-[11px] font-bold text-slate-600"}`}
+      >
+        {value}
+      </p>
     </div>
   );
 }
@@ -81,14 +85,14 @@ function TeamBadge({ team, size }) {
 function Dots({ count, active, className = "" }) {
   if (count < 2) return null;
   return (
-    <div className={`flex items-center ${className}`} style={{ gap: cq(0.3) }}>
+    <div className={`flex items-center ${className}`} style={{ gap: cq(0.25) }}>
       {Array.from({ length: Math.min(count, 8) }).map((_, i) => (
         <span
           key={i}
           className="rounded-full transition-all duration-300"
           style={{
-            height: cq(0.35),
-            width: i === active % 8 ? cq(1.1) : cq(0.35),
+            height: cq(0.28),
+            width: i === active % 8 ? cq(0.85) : cq(0.28),
             backgroundColor: i === active % 8 ? "#15803d" : "rgba(21,128,61,0.3)",
           }}
         />
@@ -104,12 +108,15 @@ function TeamStat({ label, value, color, icon }) {
     <div className="min-w-0 leading-none">
       <p
         className="flex items-center font-bold uppercase text-slate-600"
-        style={{ fontSize: cq(0.55), letterSpacing: "0.07em", gap: cq(0.2) }}
+        style={{ fontSize: cq(0.56), letterSpacing: "0.06em", gap: cq(0.18) }}
       >
         {icon}
         {label}
       </p>
-      <p className="truncate font-black tabular-nums" style={{ fontSize: cq(1.1), marginTop: cq(0.15), color }}>
+      <p
+        className="whitespace-nowrap font-black tabular-nums"
+        style={{ fontSize: cq(1.15), marginTop: cq(0.15), color }}
+      >
         {formatAmount(value)}
       </p>
     </div>
@@ -121,16 +128,16 @@ function TeamSlide({ team, metrics, count, index }) {
   return (
     <div className="overlay-slide min-w-0">
       {/* Header: small logo + team name + dots */}
-      <div className="flex items-center" style={{ gap: cq(0.6) }}>
-        <TeamBadge team={team} size={cq(1.7)} />
-        <p className="min-w-0 flex-1 truncate font-black italic leading-none text-slate-900" style={{ fontSize: cq(1.2) }}>
+      <div className="flex items-center" style={{ gap: cq(0.5) }}>
+        <TeamBadge team={team} size={cq(1.8)} />
+        <p className="min-w-0 flex-1 truncate font-black italic leading-none text-slate-900" style={{ fontSize: cq(1.22) }}>
           {name}
         </p>
         <Dots count={count} active={index} />
       </div>
 
       {/* 2 x 2 stats */}
-      <div className="grid grid-cols-2" style={{ marginTop: cq(0.45), columnGap: cq(1), rowGap: cq(0.35) }}>
+      <div className="grid grid-cols-2" style={{ marginTop: cq(0.35), columnGap: cq(0.8), rowGap: cq(0.25) }}>
         <TeamStat label="Purse" value={metrics.totalPurse} color="#EC008C" />
         <TeamStat label="Spent" value={metrics.spent} color="#D97706" />
         <TeamStat label="Balance" value={metrics.balance} color="#15803d" />
@@ -152,8 +159,8 @@ function TeamSlideMobile({ team, metrics }) {
   return (
     <div className="overlay-slide">
       <div className="flex items-center gap-2 px-3 pt-2">
-        <TeamBadge team={team} size="24px" />
-        <p className="min-w-0 flex-1 truncate text-xs font-black italic text-slate-900">{name}</p>
+        <TeamBadge team={team} size="28px" />
+        <p className="min-w-0 flex-1 truncate text-sm font-black italic text-slate-900">{name}</p>
         <span className="text-[7px] font-black uppercase tracking-[0.15em] text-[#e91e63]">Team Purse</span>
       </div>
       <div className="grid grid-cols-4 divide-x divide-slate-100 px-1 py-1.5 text-center">
@@ -165,7 +172,7 @@ function TeamSlideMobile({ team, metrics }) {
         ].map(([label, value, color]) => (
           <div key={label} className="min-w-0 px-1">
             <p className="text-[7px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
-            <p className="truncate text-[10px] font-black tabular-nums" style={{ color }}>
+            <p className="whitespace-nowrap text-[9px] min-[360px]:text-[10px] font-black tabular-nums tracking-tighter" style={{ color }}>
               {formatAmount(value)}
             </p>
           </div>
@@ -283,13 +290,58 @@ export default function YoutubeOverlay() {
     };
   }, [auction?.id, publicSlug]);
 
-  if (!currentPlayer) return null;
+  /* Ensure overlay transparency styles and classes on body/html */
+  useEffect(() => {
+    document.documentElement.classList.add("youtube-overlay-active");
+    document.body.classList.add("youtube-overlay-active");
+    return () => {
+      document.documentElement.classList.remove("youtube-overlay-active");
+      document.body.classList.remove("youtube-overlay-active");
+    };
+  }, []);
 
   const player = currentPlayer;
 
   return (
-    <div className="fixed inset-x-0 bottom-8 z-50 bg-transparent px-4 md:px-12">
+    <div className="relative h-full w-full bg-transparent overflow-hidden">
       <style>{`
+        /* SPORTZMITRA - YOUTUBE LIVE OVERLAY */
+
+        /* 1. Transparent background */
+        html,
+        body,
+        #root {
+          margin: 0 !important;
+          padding: 0 !important;
+          width: 100% !important;
+          height: 100% !important;
+          background: transparent !important;
+          background-image: none !important;
+          overflow: hidden !important;
+        }
+
+        /* 2. Remove full-screen gradient */
+        body > #root > div:first-child {
+          background: transparent !important;
+          background-image: none !important;
+        }
+
+        /* 3. Position auction overlay near bottom */
+        body > #root {
+          position: relative !important;
+        }
+
+        /* 4. Improve text sharpness */
+        body {
+          -webkit-font-smoothing: antialiased;
+          text-rendering: optimizeLegibility;
+        }
+
+        /* 5. Hide unnecessary scrollbars */
+        ::-webkit-scrollbar {
+          display: none !important;
+        }
+
         @keyframes overlaySlideIn {
           from { opacity: 0; transform: translateY(6px); }
           to   { opacity: 1; transform: translateY(0); }
@@ -298,62 +350,60 @@ export default function YoutubeOverlay() {
         @media (prefers-reduced-motion: reduce) { .overlay-slide { animation: none; } }
       `}</style>
 
-      <div className="relative mx-auto w-full max-w-6xl drop-shadow-2xl">
+      {player && (
+        <div className="fixed inset-x-0 bottom-8 z-50 bg-transparent px-4 md:px-12">
+          <div className="relative mx-auto w-full max-w-6xl drop-shadow-2xl">
         {/* ===== Desktop / tablet: chevron ticker bar over the bg asset ===== */}
         <div
-          className="relative hidden aspect-[2.95/1] w-full overflow-hidden md:block"
+          className="relative hidden aspect-[2.99/1] w-full overflow-hidden md:block"
           style={{ containerType: "inline-size" }}
         >
           <img src="/ticker-bg.png" alt="" aria-hidden="true" className="absolute inset-0 h-full w-full object-cover" />
 
-          <div className="absolute inset-0 flex items-center">
+          {/* Locked precisely to the 192px/725px banner stripe */}
+          <div
+            className="absolute inset-x-0 flex items-center"
+            style={{ top: "34.35%", height: "26.5%" }}
+          >
             {/* Pink segment — current player */}
-            <div className="flex h-full w-[76%] items-center" style={{ paddingLeft: cq(2.6), paddingRight: cq(1.5), gap: cq(2) }}>
-              {/* Brand / Title */}
-              <div className="flex shrink-0 items-center" style={{ gap: cq(0.9) }}>
-                <span
-                  className="flex shrink-0 items-center justify-center rounded-full border-2 border-[#e91e63] text-[#e91e63]"
-                  style={{ width: cq(3.4), height: cq(3.4) }}
-                >
-                  <Radio style={{ width: cq(1.6), height: cq(1.6) }} />
-                </span>
-                <div className="leading-none">
-                  <p className="font-black uppercase tracking-tight text-slate-900" style={{ fontSize: cq(2.1) }}>
-                    <span className="text-[#e91e63]">Live</span> Auction
-                  </p>
-                  <p
-                    className="font-bold uppercase text-slate-500"
-                    style={{ fontSize: cq(0.62), letterSpacing: "0.14em", marginTop: cq(0.45) }}
-                  >
-                    Players &bull; Passion &bull; Bigger Dreams
-                  </p>
-                </div>
+            <div
+              className="flex h-full w-[76.8%] items-center"
+              style={{ paddingLeft: cq(2.4), paddingRight: cq(1.5), gap: cq(1.4) }}
+            >
+              {/* SportzMitra Brand Logo (clean transparent) */}
+              <div className="flex shrink-0 items-center">
+                <img
+                  src="/sportzmitra-logo-transparent.png"
+                  alt="SportzMitra"
+                  className="object-contain"
+                  style={{ height: cq(3.3), maxWidth: cq(9.5) }}
+                />
               </div>
 
-              <div className="shrink-0 bg-slate-300/70" style={{ width: 1, height: cq(4.2) }} />
+              <div className="shrink-0 bg-slate-300/60" style={{ width: 1, height: cq(4.2) }} />
 
               {/* Player Main Info */}
-              <div className="flex min-w-0 flex-1 items-center" style={{ gap: cq(1.2) }}>
+              <div className="flex min-w-0 flex-1 items-center" style={{ gap: cq(1) }}>
                 <SafeImg
                   src={player.photo}
                   alt={player.name}
-                  className="shrink-0 rounded-xl object-cover object-top ring-2 ring-white"
-                  style={{ width: cq(5.2), height: cq(5.2) }}
+                  className="shrink-0 rounded-xl object-cover object-top ring-2 ring-white shadow-sm"
+                  style={{ width: cq(5.9), height: cq(5.9) }}
                 />
                 <div className="min-w-0">
-                  <p className="truncate font-black leading-tight text-slate-900" style={{ fontSize: cq(2.3) }}>
+                  <p className="truncate font-black leading-tight text-slate-900" style={{ fontSize: cq(1.85) }}>
                     {player.name}
                   </p>
-                  <div className="flex items-center" style={{ gap: cq(0.5), marginTop: cq(0.5) }}>
+                  <div className="flex items-center" style={{ gap: cq(0.4), marginTop: cq(0.35) }}>
                     <span
                       className="rounded-full bg-[#e91e63]/10 font-bold text-[#e91e63]"
-                      style={{ fontSize: cq(0.85), padding: `${cq(0.2)} ${cq(0.8)}` }}
+                      style={{ fontSize: cq(0.72), padding: `${cq(0.15)} ${cq(0.65)}` }}
                     >
                       {player.category}
                     </span>
                     <span
                       className="rounded-full bg-[#00c853]/15 font-bold text-[#00873a]"
-                      style={{ fontSize: cq(0.85), padding: `${cq(0.2)} ${cq(0.8)}` }}
+                      style={{ fontSize: cq(0.72), padding: `${cq(0.15)} ${cq(0.65)}` }}
                     >
                       {player.role}
                     </span>
@@ -362,16 +412,45 @@ export default function YoutubeOverlay() {
               </div>
 
               {/* Player Stats */}
-              <div className="flex shrink-0 items-center" style={{ gap: cq(2.4) }}>
-                <StatBlock label="Base Price" value={`${formatAmount(player.basePrice)}`} color="text-[#e91e63]" />
-                <StatBlock label="Current Bid" value={`${formatAmount(player.currentBid)}`} color="text-[#00a844]" />
+              <div className="flex shrink-0 items-center" style={{ gap: cq(1.8) }}>
+                {/* Base Price - Small */}
+                <div className="flex flex-col justify-center leading-none">
+                  <span
+                    className="font-bold uppercase tracking-wider text-slate-400"
+                    style={{ fontSize: cq(0.58) }}
+                  >
+                    Base Price
+                  </span>
+                  <span
+                    className="font-extrabold tabular-nums text-slate-600"
+                    style={{ fontSize: cq(1.25), marginTop: cq(0.25) }}
+                  >
+                    {formatAmount(player.basePrice)}
+                  </span>
+                </div>
+
+                {/* Current Bid - Big */}
+                <div className="flex flex-col justify-center leading-none">
+                  <span
+                    className="font-black uppercase tracking-wider text-emerald-700"
+                    style={{ fontSize: cq(0.68) }}
+                  >
+                    Current Bid
+                  </span>
+                  <span
+                    className="font-black tabular-nums text-[#00a844]"
+                    style={{ fontSize: cq(2.05), marginTop: cq(0.2) }}
+                  >
+                    {formatAmount(player.currentBid)}
+                  </span>
+                </div>
               </div>
             </div>
 
             {/* Green segment — rotating team overview */}
             <div
               className="flex h-full min-w-0 flex-1 items-center overflow-hidden"
-              style={{ paddingLeft: cq(5), paddingRight: cq(2.4), paddingTop: cq(0.2), paddingBottom: cq(0.2) }}
+              style={{ paddingLeft: cq(3.6), paddingRight: cq(2) }}
             >
               {activeTeam && (
                 <div className="w-full min-w-0">
@@ -391,13 +470,15 @@ export default function YoutubeOverlay() {
         {/* ===== Mobile fallback: stacked card ===== */}
         <div className="overflow-hidden rounded-2xl border border-[#e91e63]/20 shadow-sm md:hidden">
           <div className="flex items-center gap-3 bg-gradient-to-br from-[#fde3ee] to-[#fdf2f6] p-3">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-[#e91e63] text-[#e91e63]">
-              <Radio size={13} />
-            </span>
+            <img
+              src="/sportzmitra-logo-transparent.png"
+              alt="SportzMitra"
+              className="h-6 w-auto shrink-0 object-contain"
+            />
             <SafeImg
               src={player.photo}
               alt={player.name}
-              className="h-11 w-11 shrink-0 rounded-xl object-cover object-top ring-2 ring-white"
+              className="h-12 w-12 shrink-0 rounded-xl object-cover object-top ring-2 ring-white shadow-sm"
             />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-black text-slate-900">{player.name}</p>
@@ -431,5 +512,7 @@ export default function YoutubeOverlay() {
         </div>
       </div>
     </div>
+  )}
+</div>
   );
 }
