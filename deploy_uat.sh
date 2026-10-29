@@ -278,8 +278,14 @@ npm install --omit=dev --ignore-engines
 success "Backend dependencies installed."
 
 # Run migrations
-npm run migrate 2>/dev/null && success "Migrations complete." \
-  || warn "Migration runner not found or no new migrations — skipping."
+info "Running database migrations..."
+if [ -f "$BACKEND_DIR/migrate.js" ]; then
+  cd "$BACKEND_DIR"
+  npm run migrate
+  success "Database migrations up to date."
+else
+  warn "migrate.js not found in $BACKEND_DIR — skipping."
+fi
 
 # Stop existing UAT PM2 process if running (does NOT touch existing other PM2 apps)
 pm2 delete "${PM2_APP_NAME}" 2>/dev/null || true

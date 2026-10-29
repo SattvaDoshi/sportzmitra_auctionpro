@@ -64,8 +64,13 @@ success "Backend dependencies up to date."
 
 # Run migrations in case schema changed
 info "Running database migrations..."
-npm run migrate 2>/dev/null && success "Migrations complete." \
-  || warn "Migration runner not found or no new migrations — skipping."
+if [ -f "$APP_DIR/backend/migrate.js" ]; then
+  cd "$APP_DIR/backend"
+  npm run migrate
+  success "Database migrations up to date."
+else
+  warn "migrate.js not found in $APP_DIR/backend — skipping."
+fi
 
 # =============================================================================
 # 3. Sync & rebuild frontend
