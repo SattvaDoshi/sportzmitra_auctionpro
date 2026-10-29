@@ -569,7 +569,8 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
           serial_number: serialNumber,
         });
 
-        const hasExistingProcessed = orgPlayer.photo_processing_status === "PROCESSED" && orgPlayer.photo_url;
+        const hasRawPhoto = Boolean(rawPhotoUrl && /^https?:\/\//i.test(rawPhotoUrl));
+        const hasExistingProcessed = !hasRawPhoto && orgPlayer.photo_processing_status === "PROCESSED" && orgPlayer.photo_url;
         const latestPhotoUrl = hasExistingProcessed ? orgPlayer.photo_url : (photoUrl || orgPlayer.photo_url || null);
         const finalUploadPhotoStatus = hasExistingProcessed ? "PROCESSED" : photoProcessingStatus;
 
@@ -604,7 +605,7 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
         );
 
         // Queue background photo processing for rows with an HTTP photo URL
-        if (!hasExistingProcessed && rawPhotoUrl && /^https?:\/\//i.test(rawPhotoUrl)) {
+        if (hasRawPhoto) {
           pendingPhotoJobs.push({ orgPlayerId: orgPlayer.id, playerId: playerResult.insertId, rawPhotoUrl, req, auctionId });
         }
         inserted += 1;
