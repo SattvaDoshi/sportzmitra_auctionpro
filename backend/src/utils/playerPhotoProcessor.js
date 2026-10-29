@@ -19,16 +19,21 @@ function getDriveAuth() {
     const candidates = [
       path.resolve(keyFile),
       path.resolve(__dirname, "..", "..", keyFile),
-      path.resolve(__dirname, "..", "..", "google-service-account.json"),
+      path.resolve(__dirname, "..", keyFile),
       path.resolve(process.cwd(), keyFile),
       path.resolve(process.cwd(), "backend", keyFile),
       path.resolve(process.cwd(), "google-service-account.json"),
+      "/var/www/sportzmitra_uat/backend/google-service-account.json",
+      "/var/www/sportzmitra_uat/google-service-account.json",
+      "/var/www/sportzmitra_auctionpro/backend/google-service-account.json",
+      "/var/www/sportzmitra_auctionpro/google-service-account.json",
     ];
     const keyPath = candidates.find((p) => fs.existsSync(p));
     if (!keyPath) {
       console.warn("[Drive] Service account key file not found in candidates");
       return null;
     }
+    console.log(`[Drive] Using service account key from: ${keyPath}`);
     driveAuth = new google.auth.GoogleAuth({
       keyFile: keyPath,
       scopes: ["https://www.googleapis.com/auth/drive.readonly"],
@@ -225,13 +230,13 @@ async function processUploadedPlayerPhoto(req, file) {
 function extractDriveFileId(url) {
   try {
     const parsed = new URL(url);
-    if (!parsed.hostname.endsWith("drive.google.com")) return null;
+    if (!parsed.hostname.endsWith("drive.google.com") && !parsed.hostname.endsWith("docs.google.com")) return null;
 
-    // Pattern: /file/d/<ID>/view  or  /file/d/<ID>/preview
+    // Pattern: /file/d/<ID>/view or /file/d/<ID>
     const fileMatch = parsed.pathname.match(/\/file\/d\/([^/]+)/);
     if (fileMatch) return fileMatch[1];
 
-    // Pattern: /open?id=<ID>  or  /uc?id=<ID>  or  /u/1/open?...&id=<ID>
+    // Pattern: /open?id=<ID> or /uc?id=<ID> or /thumbnail?id=<ID>
     return parsed.searchParams.get("id") || null;
   } catch (_) {
     return null;

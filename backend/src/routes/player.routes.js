@@ -90,27 +90,48 @@ async function upsertOrgPlayer(conn, organizationId, data) {
 
   let existing = null;
 
+  // Crucial: A player is identified by their name AND mobile/email within an organization.
+  // Never merge different player names just because they share a contact number (e.g. parent, club manager) or email.
   if (normalizedMobile) {
     const [rows] = await conn.query(
-      `SELECT * FROM org_players WHERE organization_id = ? AND normalized_mobile = ? LIMIT 1`,
-      [organizationId, normalizedMobile]
+      `SELECT * FROM org_players 
+       WHERE organization_id = ? 
+         AND normalized_mobile = ? 
+         AND LOWER(TRIM(player_name)) = LOWER(TRIM(?))
+       LIMIT 1`,
+      [organizationId, normalizedMobile, playerName]
     );
     existing = rows[0] || null;
   }
 
   if (!existing && email) {
     const [rows] = await conn.query(
-      `SELECT * FROM org_players WHERE organization_id = ? AND email = ? LIMIT 1`,
-      [organizationId, email]
+      `SELECT * FROM org_players 
+       WHERE organization_id = ? 
+         AND email = ? 
+         AND LOWER(TRIM(player_name)) = LOWER(TRIM(?))
+       LIMIT 1`,
+      [organizationId, email, playerName]
+    );
+    existing = rows[0] || null;
+  }
+
+  if (!existing && !normalizedMobile && !email) {
+    const [rows] = await conn.query(
+      `SELECT * FROM org_players 
+       WHERE organization_id = ? 
+         AND LOWER(TRIM(player_name)) = LOWER(TRIM(?))
+       LIMIT 1`,
+      [organizationId, playerName]
     );
     existing = rows[0] || null;
   }
 
   if (existing) {
-    // skipPhotoUpdate: when editing a specific auction player, we don't want to overwrite
-    // the shared org_player photo — multiple players can share the same org_player (same email)
-    // and updating the org_player photo would change ALL of them.
-    const skipPhotoUpdate = data.skipPhotoUpdate || (existing.photo_processing_status === "PROCESSED" && existing.photo_url && photoProcessingStatus === "URL_NOT_PROCESSED");
+    // If incoming upload has a new raw photo URL, we DO want to update it.
+    // Only skip if incoming has NO new photo and existing is already PROCESSED.
+    const incomingHasPhoto = Boolean(photoUrl && /^https?:\/\//i.test(photoUrl));
+    const skipPhotoUpdate = data.skipPhotoUpdate || (!incomingHasPhoto && existing.photo_processing_status === "PROCESSED" && existing.photo_url);
 
     if (skipPhotoUpdate) {
       await conn.query(
@@ -209,8 +230,12 @@ async function processPhotoJobsInBackground(jobs) {
 
   async function worker() {
     while (jobIndex < jobs.length) {
-      const job = jobs[jobIndex++];
+      const currentIndex = jobIndex++;
+      const job = jobs[currentIndex];
+      if (!job) break;
+      const playerLabel = job.playerName ? `"${job.playerName}" (id=${job.playerId})` : `id=${job.playerId}`;
       try {
+        console.log(`[photoBackground] [${currentIndex + 1}/${jobs.length}] Downloading photo for ${playerLabel}...`);
         const processed = await processPlayerPhotoUrl(job.req, job.rawPhotoUrl);
         const bgConn = await pool.getConnection();
         try {
@@ -230,6 +255,7 @@ async function processPhotoJobsInBackground(jobs) {
              WHERE id = ?`,
             [processed.photo_url, processed.original_photo_url, processed.photo_processing_status, job.playerId]
           );
+          console.log(`[photoBackground] [${currentIndex + 1}/${jobs.length}] Photo SUCCESS for ${playerLabel}: ${processed.photo_url}`);
           // Emit real-time update so admin UI can swap the photo immediately
           emitAuctionUpdate(job.auctionId, "playerPhotoReady", {
             playerId: job.playerId,
@@ -240,7 +266,7 @@ async function processPhotoJobsInBackground(jobs) {
           bgConn.release();
         }
       } catch (err) {
-        console.warn(`[photoBackground] Photo failed for player ${job.playerId}:`, err.message);
+        console.warn(`[photoBackground] [${currentIndex + 1}/${jobs.length}] Photo FAILED for ${playerLabel}:`, err.message);
         try {
           await pool.query(
             `UPDATE players SET photo_processing_status = 'FAILED' WHERE id = ?`,
@@ -544,7 +570,34 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
         const previousTeam = clean(row["Previous Team"] || row.previous_team);
         const playerInfo = clean(row["Player Info"] || row["Rich Text Info"] || row.player_info);
         const serialNumber = clean(row["Serial Number"] || row["Serial No"] || row.serial_number || row.id || row.Id);
-        const rawPhotoUrl = clean(row["Photo URL"] || row["Photo"] || row.photo_url || row.photo);
+        const photoKey = Object.keys(row).find(k => {
+          const norm = k.trim().toLowerCase();
+          return (
+            norm === "photo url" ||
+            norm === "photo_url" ||
+            norm === "photo" ||
+            norm === "photos" ||
+            norm === "player photo" ||
+            norm === "player photograph" ||
+            norm === "photograph" ||
+            norm === "photo link" ||
+            norm === "image" ||
+            norm === "image url" ||
+            norm === "image link" ||
+            norm === "drive link" ||
+            norm === "google drive link" ||
+            norm === "upload photo" ||
+            norm === "upload your photo" ||
+            norm.includes("photo") ||
+            norm.includes("photograph")
+          );
+        });
+        const rawPhotoCell = clean(photoKey ? row[photoKey] : (row["Photo URL"] || row["Photo"] || row.photo_url || row.photo));
+        let rawPhotoUrl = null;
+        if (rawPhotoCell) {
+          const urlMatch = String(rawPhotoCell).match(/https?:\/\/[^\s,;"'<>]+/i);
+          rawPhotoUrl = urlMatch ? urlMatch[0].trim() : rawPhotoCell;
+        }
         // Save raw URL immediately - photo processing happens in the background after responding.
         // Processing photos synchronously (download + face-crop) per row inside the HTTP request
         // can take 10-30 s for large sheets and triggers proxy / client timeouts.
@@ -571,42 +624,101 @@ router.post("/upload/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
 
         const hasRawPhoto = Boolean(rawPhotoUrl && /^https?:\/\//i.test(rawPhotoUrl));
         const hasExistingProcessed = !hasRawPhoto && orgPlayer.photo_processing_status === "PROCESSED" && orgPlayer.photo_url;
-        const latestPhotoUrl = hasExistingProcessed ? orgPlayer.photo_url : (photoUrl || orgPlayer.photo_url || null);
-        const finalUploadPhotoStatus = hasExistingProcessed ? "PROCESSED" : photoProcessingStatus;
+        const latestPhotoUrl = hasRawPhoto ? rawPhotoUrl : (hasExistingProcessed ? orgPlayer.photo_url : null);
+        const finalUploadPhotoStatus = hasRawPhoto ? "URL_NOT_PROCESSED" : (hasExistingProcessed ? "PROCESSED" : null);
 
-        const [playerResult] = await conn.query(
-          `INSERT INTO players
-           (auction_id, organization_id, org_player_id, player_name, player_mobile, normalized_mobile, player_email,
-            category, player_role, base_price, tshirt_size, age, area, previous_team, photo_url,
-            photo_processing_status,
-            registration_source, import_batch_id, status, serial_number, player_info)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'EXCEL', ?, 'AVAILABLE', ?, ?)`,
-          [
-            auctionId,
-            organizationId,
-            orgPlayer.id,
-            playerName,
-            mobile,
-            normalizeMobile(mobile),
-            email,
-            category,
-            role,
-            basePrice,
-            tshirtSize,
-            age,
-            area,
-            previousTeam,
-            latestPhotoUrl,
-            finalUploadPhotoStatus,
-            importBatchId,
-            serialNumber,
-            playerInfo,
-          ]
+        // If player already exists in this auction, update their record instead of inserting a duplicate
+        const [[existingInAuction]] = await conn.query(
+          `SELECT id, status FROM players 
+           WHERE auction_id = ? 
+             AND LOWER(TRIM(player_name)) = LOWER(TRIM(?)) 
+             AND COALESCE(is_deleted, 0) = 0
+           LIMIT 1`,
+          [auctionId, playerName]
         );
+
+        let playerId = null;
+        if (existingInAuction && existingInAuction.status !== "SOLD") {
+          playerId = existingInAuction.id;
+          await conn.query(
+            `UPDATE players
+             SET organization_id = ?,
+                 org_player_id = ?,
+                 player_mobile = ?,
+                 normalized_mobile = ?,
+                 player_email = ?,
+                 category = ?,
+                 player_role = ?,
+                 base_price = ?,
+                 tshirt_size = ?,
+                 age = ?,
+                 area = ?,
+                 previous_team = ?,
+                 photo_url = ?,
+                 photo_processing_status = ?,
+                 registration_source = 'EXCEL',
+                 import_batch_id = ?,
+                 serial_number = ?,
+                 player_info = ?,
+                 updated_at = NOW()
+             WHERE id = ?`,
+            [
+              organizationId,
+              orgPlayer.id,
+              mobile,
+              normalizeMobile(mobile),
+              email,
+              category,
+              role,
+              basePrice,
+              tshirtSize,
+              age,
+              area,
+              previousTeam,
+              latestPhotoUrl,
+              finalUploadPhotoStatus,
+              importBatchId,
+              serialNumber,
+              playerInfo,
+              playerId,
+            ]
+          );
+        } else {
+          const [playerResult] = await conn.query(
+            `INSERT INTO players
+             (auction_id, organization_id, org_player_id, player_name, player_mobile, normalized_mobile, player_email,
+              category, player_role, base_price, tshirt_size, age, area, previous_team, photo_url,
+              photo_processing_status,
+              registration_source, import_batch_id, status, serial_number, player_info)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'EXCEL', ?, 'AVAILABLE', ?, ?)`,
+            [
+              auctionId,
+              organizationId,
+              orgPlayer.id,
+              playerName,
+              mobile,
+              normalizeMobile(mobile),
+              email,
+              category,
+              role,
+              basePrice,
+              tshirtSize,
+              age,
+              area,
+              previousTeam,
+              latestPhotoUrl,
+              finalUploadPhotoStatus,
+              importBatchId,
+              serialNumber,
+              playerInfo,
+            ]
+          );
+          playerId = playerResult.insertId;
+        }
 
         // Queue background photo processing for rows with an HTTP photo URL
         if (hasRawPhoto) {
-          pendingPhotoJobs.push({ orgPlayerId: orgPlayer.id, playerId: playerResult.insertId, rawPhotoUrl, req, auctionId });
+          pendingPhotoJobs.push({ orgPlayerId: orgPlayer.id, playerId, playerName, rawPhotoUrl, req, auctionId });
         }
         inserted += 1;
       } catch (rowError) {
