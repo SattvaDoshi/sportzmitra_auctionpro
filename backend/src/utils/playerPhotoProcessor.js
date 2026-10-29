@@ -266,30 +266,64 @@ async function downloadDriveFileWithServiceAccount(fileId) {
 }
 
 async function downloadImageBuffer(rawUrl) {
-  // --- Google Drive: prefer Service Account auth if configured ---
   const driveFileId = extractDriveFileId(rawUrl);
+
+  // 1. Google Drive with Service Account (required for private Drive/Forms files)
   if (driveFileId && getDriveAuth()) {
-    return downloadDriveFileWithServiceAccount(driveFileId);
+    try {
+      return await downloadDriveFileWithServiceAccount(driveFileId);
+    } catch (saErr) {
+      console.warn(`[Drive] Service account download failed for ${driveFileId}: ${saErr.message}. Trying public endpoints...`);
+    }
   }
 
-  // --- Fallback: plain HTTP fetch (works for truly public URLs) ---
-  const url = rawUrl;
-  const response = await fetch(url, {
+  // 2. Google Drive direct endpoints fallback (works when files are shared with 'Anyone with the link')
+  if (driveFileId) {
+    const driveCandidates = [
+      `https://lh3.googleusercontent.com/d/${driveFileId}`,
+      `https://drive.google.com/thumbnail?id=${driveFileId}&sz=w1600`,
+      `https://drive.google.com/uc?export=download&id=${driveFileId}`,
+    ];
+
+    for (const dUrl of driveCandidates) {
+      try {
+        const res = await fetch(dUrl, {
+          redirect: "follow",
+          headers: {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          },
+        });
+        const cType = res.headers.get("content-type") || "";
+        if (res.ok && !cType.includes("text/html") && (cType.startsWith("image/") || cType === "application/octet-stream")) {
+          const ab = await res.arrayBuffer();
+          if (ab.byteLength > 500) {
+            return {
+              buffer: Buffer.from(ab),
+              mimetype: cType.startsWith("image/") ? cType : "image/jpeg",
+              originalname: `drive-${driveFileId}.jpg`,
+            };
+          }
+        }
+      } catch (_) {}
+    }
+  }
+
+  // 3. Fallback: plain HTTP fetch (for public direct image URLs like .jpg/.png)
+  const response = await fetch(rawUrl, {
     redirect: "follow",
-    headers: { "user-agent": "SportzMitraAuction/1.0" },
+    headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
   });
 
   if (!response.ok) {
-    throw new Error(`Photo URL download failed: ${response.status} (${url})`);
+    throw new Error(`Photo URL download failed: ${response.status} (${rawUrl})`);
   }
 
   const contentType = response.headers.get("content-type") || "";
 
-  // Guard: reject HTML responses (e.g. Drive bot-protection or login pages)
   if (contentType.includes("text/html")) {
     throw new Error(
       `URL did not return an image (got ${contentType}). ` +
-      `For Google Drive photos, configure GOOGLE_SERVICE_ACCOUNT_KEY_FILE in .env.`
+      `For Google Drive photos, place google-service-account.json in the backend directory.`
     );
   }
 
@@ -297,7 +331,7 @@ async function downloadImageBuffer(rawUrl) {
   return {
     buffer: Buffer.from(arrayBuffer),
     mimetype: contentType,
-    originalname: path.basename(new URL(url).pathname) || "photo.jpg",
+    originalname: path.basename(new URL(rawUrl).pathname) || "photo.jpg",
   };
 }
 
