@@ -121,8 +121,13 @@ success "PM2 (${PM2_APP_NAME}) reloaded."
 # =============================================================================
 # 5. Health check on port 5001
 # =============================================================================
-sleep 2
-HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${BACKEND_PORT}/health" || echo "000")
+for i in {1..10}; do
+  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${BACKEND_PORT}/health" || echo "000")
+  if [[ "$HTTP_STATUS" == "200" ]]; then
+    break
+  fi
+  sleep 1
+done
 if [[ "$HTTP_STATUS" == "200" ]]; then
   success "Backend health check PASSED on port ${BACKEND_PORT} (HTTP $HTTP_STATUS)"
 else
