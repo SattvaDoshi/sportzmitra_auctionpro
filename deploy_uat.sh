@@ -356,50 +356,10 @@ if [ ! -f /etc/letsencrypt/ssl-dhparams.pem ]; then
   openssl dhparam -out /etc/letsencrypt/ssl-dhparams.pem 2048
 fi
 
-# Stop nginx for a few seconds so certbot can bind port 80 cleanly without Nginx conflicts
-systemctl stop nginx 2>/dev/null || true
-pkill -f "nginx" 2>/dev/null || true
-sleep 2
-
-# Handle case where Certbot created certificate lineage under -0001
-for DOM in "${FRONTEND_DOMAIN}" "${API_DOMAIN}"; do
-  if [ -d "/etc/letsencrypt/live/${DOM}-0001" ]; then
-    info "Linking ${DOM}-0001 to ${DOM}..."
-    rm -rf "/etc/letsencrypt/live/${DOM}"
-    ln -sf "/etc/letsencrypt/live/${DOM}-0001" "/etc/letsencrypt/live/${DOM}"
-  fi
-done
-
-# Clean up any temporary self-signed certificates so Certbot does not error on "live directory exists"
-for DOM in "${FRONTEND_DOMAIN}" "${API_DOMAIN}"; do
-  if [ -d "/etc/letsencrypt/live/${DOM}" ] && [ ! -L "/etc/letsencrypt/live/${DOM}" ] && [ ! -L "/etc/letsencrypt/live/${DOM}/fullchain.pem" ]; then
-    info "Removing temporary self-signed cert directory for ${DOM}..."
-    rm -rf "/etc/letsencrypt/live/${DOM}" "/etc/letsencrypt/archive/${DOM}"
-  fi
-done
-
-# Request certificate for Frontend domain (standalone)
-if [ ! -f "/etc/letsencrypt/live/${FRONTEND_DOMAIN}/fullchain.pem" ]; then
-  info "Requesting Let's Encrypt certificate for ${FRONTEND_DOMAIN} ..."
-  certbot certonly --standalone \
-    -d "${FRONTEND_DOMAIN}" \
-    --email "${LE_EMAIL}" \
-    --agree-tos --non-interactive || warn "Certbot failed for ${FRONTEND_DOMAIN}."
-fi
-
-# Request certificate for API domain (standalone)
-if [ ! -f "/etc/letsencrypt/live/${API_DOMAIN}/fullchain.pem" ]; then
-  info "Requesting Let's Encrypt certificate for ${API_DOMAIN} ..."
-  certbot certonly --standalone \
-    -d "${API_DOMAIN}" \
-    --email "${LE_EMAIL}" \
-    --agree-tos --non-interactive || warn "Certbot failed for ${API_DOMAIN}."
-fi
-
-# Fallback self-signed cert if DNS has not propagated yet, so Nginx never fails
+# Ensure placeholder certificates exist so Nginx syntax check passes before obtaining real certs
 for DOM in "${FRONTEND_DOMAIN}" "${API_DOMAIN}"; do
   if [ ! -f "/etc/letsencrypt/live/${DOM}/fullchain.pem" ]; then
-    warn "Creating temporary self-signed certificate for ${DOM}..."
+    warn "Creating placeholder certificate for ${DOM} so Nginx can boot..."
     mkdir -p "/etc/letsencrypt/live/${DOM}"
     openssl req -x509 -nodes -days 30 -newkey rsa:2048 \
       -keyout "/etc/letsencrypt/live/${DOM}/privkey.pem" \
@@ -541,10 +501,66 @@ server {
 }
 NGINX
 
-# Test & start/restart Nginx
-nginx -t && (systemctl restart nginx || systemctl start nginx)
+# Enable site in Nginx sites-enabled
+ln -sf /etc/nginx/sites-available/sportzmitra-uat /etc/nginx/sites-enabled/sportzmitra-uat
+
+# Test & reload/start Nginx so port 80 acme challenge is active
+nginx -t && (systemctl reload nginx || systemctl restart nginx || systemctl start nginx)
 systemctl enable nginx
-success "Nginx started with isolated sportzmitra-uat configuration."
+success "Nginx site sportzmitra-uat enabled."
+
+# Obtain or renew genuine Let's Encrypt certificates
+for DOM in "${FRONTEND_DOMAIN}" "${API_DOMAIN}"; do
+  CERT_FILE="/etc/letsencrypt/live/${DOM}/fullchain.pem"
+  IS_VALID_LE=0
+  if [ -f "$CERT_FILE" ] && openssl x509 -in "$CERT_FILE" -issuer -noout 2>/dev/null | grep -qi "Let's Encrypt"; then
+    IS_VALID_LE=1
+  fi
+
+  if [ "$IS_VALID_LE" -eq 0 ]; then
+    info "Obtaining Let's Encrypt certificate for ${DOM}..."
+
+    # If placeholder cert directory exists with non-symlink files, clean it up so Certbot won't error
+    if [ -d "/etc/letsencrypt/live/${DOM}" ] && [ ! -L "/etc/letsencrypt/live/${DOM}/fullchain.pem" ]; then
+      rm -rf "/etc/letsencrypt/live/${DOM}" "/etc/letsencrypt/archive/${DOM}"
+    fi
+
+    # Try webroot first (zero downtime)
+    if certbot certonly --webroot -w /var/www/certbot \
+      -d "${DOM}" \
+      --email "${LE_EMAIL}" \
+      --agree-tos --no-eff-email --non-interactive; then
+      success "Let's Encrypt certificate obtained for ${DOM} via webroot."
+    else
+      warn "Webroot certbot failed for ${DOM}, falling back to standalone mode..."
+      systemctl stop nginx 2>/dev/null || true
+      pkill -9 -f nginx 2>/dev/null || true
+      sleep 2
+      if certbot certonly --standalone \
+        -d "${DOM}" \
+        --email "${LE_EMAIL}" \
+        --agree-tos --no-eff-email --non-interactive; then
+        success "Let's Encrypt certificate obtained for ${DOM} via standalone mode."
+      else
+        warn "Certbot failed for ${DOM}."
+      fi
+      systemctl start nginx 2>/dev/null || true
+    fi
+
+    # Handle -0001 suffix if created
+    if [ -d "/etc/letsencrypt/live/${DOM}-0001" ]; then
+      info "Linking ${DOM}-0001 to ${DOM}..."
+      rm -rf "/etc/letsencrypt/live/${DOM}"
+      ln -sf "/etc/letsencrypt/live/${DOM}-0001" "/etc/letsencrypt/live/${DOM}"
+    fi
+  else
+    success "Valid Let's Encrypt certificate is already active for ${DOM}."
+  fi
+done
+
+# Reload Nginx with verified certificates
+nginx -t && (systemctl reload nginx || systemctl restart nginx)
+success "Nginx is live with HTTPS for ${FRONTEND_DOMAIN} and ${API_DOMAIN}."
 
 # Auto-renew via cron if not already present
 if ! crontab -l 2>/dev/null | grep -q 'certbot renew'; then
