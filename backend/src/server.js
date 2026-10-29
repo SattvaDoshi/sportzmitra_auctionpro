@@ -34,8 +34,16 @@ if (isProduction) {
 }
 
 // ── CORS ─────────────────────────────────────────────────────────────────────
+const configuredOrigins = (process.env.FRONTEND_ORIGIN || "")
+  .split(",")
+  .map((o) => o.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
+
 const allowedOrigins = [
-  process.env.FRONTEND_ORIGIN,
+  ...configuredOrigins,
+  "https://auction2.sportzmitrastore.com",
+  "https://auction.sportzmitrastore.com",
+  "https://sportzmitrastore.com",
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:5175",
@@ -47,10 +55,13 @@ const allowedOrigins = [
 const corsOptions = {
   origin(origin, callback) {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
+    const normalizedOrigin = origin.replace(/\/+$/, "");
     if (
-      origin.startsWith("http://localhost:") ||
-      origin.startsWith("http://127.0.0.1:")
+      allowedOrigins.includes(normalizedOrigin) ||
+      normalizedOrigin.endsWith(".sportzmitrastore.com") ||
+      normalizedOrigin === "https://sportzmitrastore.com" ||
+      normalizedOrigin.startsWith("http://localhost:") ||
+      normalizedOrigin.startsWith("http://127.0.0.1:")
     ) {
       return callback(null, true);
     }
@@ -58,7 +69,13 @@ const corsOptions = {
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With",
+    "Accept",
+    "Origin",
+  ],
 };
 
 // ── Socket.io ─────────────────────────────────────────────────────────────────

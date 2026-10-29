@@ -445,16 +445,7 @@ server {
     add_header X-XSS-Protection       "1; mode=block" always;
     add_header Referrer-Policy        "strict-origin"  always;
 
-    add_header Access-Control-Allow-Origin  "https://${FRONTEND_DOMAIN}" always;
-    add_header Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS" always;
-    add_header Access-Control-Allow-Headers "Authorization, Content-Type, X-Requested-With" always;
-    add_header Access-Control-Allow-Credentials "true" always;
-
     location / {
-        if (\$request_method = OPTIONS) {
-            return 204;
-        }
-
         proxy_pass         http://sportzmitra_uat_api;
         proxy_http_version 1.1;
         proxy_set_header   Host              \$host;
