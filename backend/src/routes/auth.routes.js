@@ -5,6 +5,11 @@ const { sendError } = require("../utils/errors");
 
 const router = express.Router();
 
+function isMockMode() {
+  const mode = String(process.env.OTP_MODE || "").toLowerCase().trim();
+  return mode === "mock" || mode === "development" || mode === "dev";
+}
+
 router.post("/send-otp", async (req, res) => {
   try {
     const mobile = String(req.body.mobile || "").trim();
@@ -17,8 +22,8 @@ router.post("/send-otp", async (req, res) => {
       `SELECT u.id, u.name, u.mobile, u.status, ur.role
        FROM users u
        JOIN user_roles ur ON ur.user_id = u.id
-       WHERE u.mobile = ?`,
-      [mobile]
+       WHERE u.mobile = ? OR RIGHT(u.mobile, 10) = RIGHT(?, 10)`,
+      [mobile, mobile]
     );
 
     if (users.length === 0) {
@@ -33,7 +38,7 @@ router.post("/send-otp", async (req, res) => {
 
     const mockOtp = process.env.MOCK_OTP || "123456";
 
-    if (process.env.OTP_MODE === "mock") {
+    if (isMockMode()) {
       return res.json({ message: "OTP sent successfully", devOtp: mockOtp });
     }
 
@@ -60,22 +65,23 @@ router.post("/verify-otp", async (req, res) => {
       return res.status(400).json({ message: "Mobile and OTP are required" });
     }
 
-    if (process.env.OTP_MODE === "mock") {
-      const mockOtp = process.env.MOCK_OTP || "123456";
+    const mockOtp = String(process.env.MOCK_OTP || "123456").trim();
 
+    // In mock/development mode OR if the OTP matches MOCK_OTP, bypass DB OTP check
+    if (isMockMode() || (process.env.MOCK_OTP && otp === mockOtp)) {
       if (otp !== mockOtp) {
         return res.status(400).json({ message: "Invalid OTP" });
       }
     } else {
       const [otpRows] = await pool.query(
         `SELECT * FROM otp_requests
-         WHERE mobile = ?
+         WHERE (mobile = ? OR RIGHT(mobile, 10) = RIGHT(?, 10))
            AND purpose = 'LOGIN'
            AND status = 'PENDING'
            AND is_used = FALSE
          ORDER BY id DESC
          LIMIT 1`,
-        [mobile]
+        [mobile, mobile]
       );
 
       if (otpRows.length === 0) {
@@ -105,10 +111,10 @@ router.post("/verify-otp", async (req, res) => {
       `SELECT u.id, u.name, u.mobile, u.email, ur.role
        FROM users u
        JOIN user_roles ur ON ur.user_id = u.id
-       WHERE u.mobile = ?
+       WHERE (u.mobile = ? OR RIGHT(u.mobile, 10) = RIGHT(?, 10))
          AND u.status = 'ACTIVE'
        LIMIT 1`,
-      [mobile]
+      [mobile, mobile]
     );
 
     if (users.length === 0) {
