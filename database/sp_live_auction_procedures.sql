@@ -45,11 +45,12 @@ CREATE PROCEDURE `sp_select_current_player`(
   IN p_user_id    BIGINT
 )
 BEGIN
-  DECLARE v_player_name    VARCHAR(150);
-  DECLARE v_prev_player_id BIGINT DEFAULT NULL;
+  DECLARE v_player_name     VARCHAR(150);
+  DECLARE v_player_category VARCHAR(100) DEFAULT NULL;
+  DECLARE v_prev_player_id  BIGINT DEFAULT NULL;
 
   -- Validate player belongs to this auction and is selectable
-  SELECT player_name INTO v_player_name
+  SELECT player_name, category INTO v_player_name, v_player_category
   FROM players
   WHERE id = p_player_id AND auction_id = p_auction_id AND COALESCE(is_deleted, 0) = 0
   LIMIT 1;
@@ -78,9 +79,10 @@ BEGIN
   SET status = 'IN_AUCTION'
   WHERE id = p_player_id AND auction_id = p_auction_id;
 
-  -- Update auction state: set current player, reset bid, clear highest team
+  -- Update auction state: set current player, reset bid, clear highest team, update current_category
   UPDATE auction_state
   SET current_player_id    = p_player_id,
+      current_category     = COALESCE(v_player_category, current_category),
       current_bid          = (SELECT COALESCE(base_price, 0) FROM players WHERE id = p_player_id),
       highest_team_id      = NULL,
       state                = 'PLAYER_ACTIVE',

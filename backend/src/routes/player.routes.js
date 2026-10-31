@@ -10,6 +10,7 @@ const { sendError } = require("../utils/errors");
 const { processUploadedPlayerPhoto, processPlayerPhotoUrl } = require("../utils/playerPhotoProcessor");
 const { emitAuctionSnapshot, emitAuctionUpdate } = require("../socket");
 const cache = require("../utils/snapshotCache");
+const { syncTeamPurse } = require("../utils/teamPurse");
 
 const router = express.Router();
 const upload = multer({ dest: "src/uploads/" });
@@ -856,16 +857,6 @@ router.patch("/:playerId/correction", authMiddleware, requireRole("AUCTION_ADMIN
     const oldTeamId = player.sold_team_id ? Number(player.sold_team_id) : null;
     const oldPrice = Number(player.sold_price || 0);
 
-    if (player.status === "SOLD" && oldTeamId && oldPrice > 0) {
-      await conn.query(
-        `UPDATE teams 
-         SET remaining_purse = remaining_purse + ?,
-             balance_purse = COALESCE(balance_purse, remaining_purse) + ?
-         WHERE id = ?`,
-        [oldPrice, oldPrice, oldTeamId]
-      );
-    }
-
     let soldAtSql = "NULL";
     let finalUnsoldAtSql = "final_unsold_at";
     let lastUnsoldAtSql = "last_unsold_at";
@@ -875,20 +866,25 @@ router.patch("/:playerId/correction", authMiddleware, requireRole("AUCTION_ADMIN
       if (!newTeamId) throw new Error("sold_team_id is required when status is SOLD");
       if (newPrice <= 0) throw new Error("sold_price must be greater than zero when status is SOLD");
 
-      const [[team]] = await conn.query(
-        `SELECT id, remaining_purse, balance_purse FROM teams WHERE id = ? AND auction_id = ? FOR UPDATE`,
+      const [[targetTeam]] = await conn.query(
+        `SELECT id, team_name, total_purse, remaining_purse FROM teams WHERE id = ? AND auction_id = ? AND COALESCE(is_deleted, 0) = 0 FOR UPDATE`,
         [newTeamId, player.auction_id]
       );
-      if (!team) throw new Error("Selected team not found in this auction");
-      if (Number(team.remaining_purse || 0) < newPrice) throw new Error("Selected team does not have enough remaining purse");
+      if (!targetTeam) throw new Error("Selected team not found in this auction");
 
-      await conn.query(
-        `UPDATE teams 
-         SET remaining_purse = remaining_purse - ?,
-             balance_purse = COALESCE(balance_purse, remaining_purse) - ?
-         WHERE id = ?`,
-        [newPrice, newPrice, newTeamId]
+      const [[spentRow]] = await conn.query(
+        `SELECT COALESCE(SUM(sold_price), 0) AS total_spent FROM players
+         WHERE auction_id = ? AND sold_team_id = ? AND status = 'SOLD' AND id != ? AND COALESCE(is_deleted, 0) = 0`,
+        [player.auction_id, newTeamId, playerId]
       );
+      const targetTotalPurse = Number(targetTeam.total_purse || targetTeam.remaining_purse || 0);
+      const targetSpentOther = Number(spentRow?.total_spent || 0);
+      const availablePurse = targetTotalPurse - targetSpentOther;
+
+      if (availablePurse < newPrice) {
+        throw new Error(`Team ${targetTeam.team_name} does not have enough purse (${availablePurse} available, needed ${newPrice})`);
+      }
+
       soldAtSql = "COALESCE(sold_at, NOW())";
     } else if (newStatus === "UNSOLD") {
       lastUnsoldAtSql = "NOW()";
@@ -928,6 +924,9 @@ router.patch("/:playerId/correction", authMiddleware, requireRole("AUCTION_ADMIN
         playerId,
       ]
     );
+
+    // Sync team purses from ground truth (accurately adjusts old team & new team)
+    await syncTeamPurse(conn, player.auction_id, [oldTeamId, newTeamId]);
 
     // Keep auction_state in sync if this player is currently active in state
     const [[currentState]] = await conn.query(
@@ -1005,17 +1004,18 @@ router.patch("/:playerId/correction", authMiddleware, requireRole("AUCTION_ADMIN
     await conn.commit();
 
     cache.invalidate(player.auction_id);
+    let snapshot = null;
     try {
       const liveRoutes = require("./live.routes");
       if (liveRoutes.loadSnapshot) {
-        const snapshot = await liveRoutes.loadSnapshot(player.auction_id);
+        snapshot = await liveRoutes.loadSnapshot(player.auction_id);
         emitAuctionSnapshot(player.auction_id, snapshot, "auctionSnapshotUpdated");
       }
     } catch (e) {
       console.error("Failed to emit auction snapshot after player correction", e);
     }
 
-    res.json({ message: "Player correction saved", player: updated });
+    res.json({ message: "Player correction saved", player: updated, snapshot });
   } catch (error) {
     await conn.rollback();
     console.error("player correction error", error);

@@ -203,6 +203,9 @@ export default function LiveControl() {
   const [correctionPrice, setCorrectionPrice] = useState("");
   const [correctionReason, setCorrectionReason] = useState("");
   const [maxBidMap, setMaxBidMap] = useState({});
+  // Tracks whether we have already auto-loaded the first player for this auction
+  // session so we don't keep re-triggering on every snapshot refresh.
+  const autoLoadedRef = useRef(false);
 
   async function load() {
     try {
@@ -234,7 +237,157 @@ export default function LiveControl() {
 
   useEffect(() => {
     load();
+    // Reset auto-load guard whenever we switch auctions
+    autoLoadedRef.current = false;
   }, [auctionId]);
+
+  // Auto-load first player onto the block when auction is live but no player is active yet.
+  // Two-step: suggest-next (picks the right player respecting category order) →
+  // select-player (puts the player on the block with photo, base price, etc.).
+  // Runs once per auction session (guarded by autoLoadedRef).
+  // Auto-load first player onto the block when auction is live but no player is active yet.
+  // Two-step: suggest-next (picks the right player respecting category order) →
+  // select-player (puts the player on the block with photo, base price, etc.).
+  // Runs once per auction session (guarded by autoLoadedRef).
+  useEffect(() => {
+    if (autoLoadedRef.current) return;          // already triggered this session
+    if (!state) return;                         // snapshot not loaded yet
+    if (!players.length) return;               // player list not loaded yet
+
+    const currentState = String(state?.state || "").toUpperCase();
+    const hasPlayerOnBlock = Number(state?.current_player_id || 0) > 0;
+    const isActive = ["LIVE", "IN_PROGRESS", "ACTIVE"].includes(
+      String(auction?.status || "").toUpperCase()
+    );
+    // Only auto-load when truly no one is on the block yet
+    const isIdleState =
+      ["WAITING", "IDLE", "NOT_STARTED", ""].includes(currentState) || !currentState;
+    const hasEligible = players.some((p) =>
+      ["AVAILABLE", "UNSOLD"].includes(String(p.status || "").toUpperCase())
+    );
+
+    if (!isActive || hasPlayerOnBlock || !isIdleState || !hasEligible) return;
+
+    autoLoadedRef.current = true; // guard: prevent double-fire before async resolves
+
+    (async () => {
+      try {
+        // Step 1: ask backend to pick the correct next player (respects category order)
+        const suggestRes = await api.post(`/live/${auctionId}/suggest-next`);
+        const suggestedId =
+          suggestRes?.data?.suggested?.id ||
+          suggestRes?.data?.snapshot?.state?.suggested_player_id ||
+          null;
+
+        if (!suggestedId) {
+          // Fallback: pick first eligible player from the already-sorted list
+          const fallback = players.find((p) =>
+            ["AVAILABLE", "UNSOLD"].includes(String(p.status || "").toUpperCase())
+          );
+          if (!fallback) return;
+
+          const selRes = await api.post(`/live/${auctionId}/select-player`, {
+            player_id: Number(fallback.id),
+          });
+          if (selRes?.data?.snapshot) {
+            setSnapshot(selRes.data.snapshot);
+            setState(selRes.data.snapshot.state);
+            setBid(Number(selRes.data.snapshot.state?.current_bid || selRes.data.snapshot.state?.base_price || 0));
+            setIncrement((old) => Number(selRes.data.snapshot.state?.current_bid_increment || old));
+            setSelectionMode((old) => selRes.data.snapshot.state?.selection_mode || old);
+          }
+          await load();
+          return;
+        }
+
+        // Step 2: select-player actually puts the player on the block (sets current_player_id + photo)
+        const selRes = await api.post(`/live/${auctionId}/select-player`, {
+          player_id: Number(suggestedId),
+        });
+        if (selRes?.data?.snapshot) {
+          setSnapshot(selRes.data.snapshot);
+          setState(selRes.data.snapshot.state);
+          setBid(Number(selRes.data.snapshot.state?.current_bid || selRes.data.snapshot.state?.base_price || 0));
+          setIncrement((old) => Number(selRes.data.snapshot.state?.current_bid_increment || old));
+          setSelectionMode((old) => selRes.data.snapshot.state?.selection_mode || old);
+        }
+        await load();
+      } catch (err) {
+        console.error("Auto-load first player failed", err);
+        autoLoadedRef.current = false; // allow retry on next render if request failed
+      }
+    })();
+  }, [state, players, auction]);
+
+  useEffect(() => {
+    if (autoLoadedRef.current) return;          // already triggered this session
+    if (!state) return;                         // snapshot not loaded yet
+    if (!players.length) return;               // player list not loaded yet
+
+    const currentState = String(state?.state || "").toUpperCase();
+    const hasPlayerOnBlock = Number(state?.current_player_id || 0) > 0;
+    const isActive = ["LIVE", "IN_PROGRESS", "ACTIVE"].includes(
+      String(auction?.status || "").toUpperCase()
+    );
+    // Only auto-load when truly no one is on the block yet
+    const isIdleState =
+      ["WAITING", "IDLE", "NOT_STARTED", ""].includes(currentState) || !currentState;
+    const hasEligible = players.some((p) =>
+      ["AVAILABLE", "UNSOLD"].includes(String(p.status || "").toUpperCase())
+    );
+
+    if (!isActive || hasPlayerOnBlock || !isIdleState || !hasEligible) return;
+
+    autoLoadedRef.current = true; // guard: prevent double-fire before async resolves
+
+    (async () => {
+      try {
+        // Step 1: ask backend to pick the correct next player (respects category order)
+        const suggestRes = await api.post(`/live/${auctionId}/suggest-next`);
+        const suggestedId =
+          suggestRes?.data?.suggested?.id ||
+          suggestRes?.data?.snapshot?.state?.suggested_player_id ||
+          null;
+
+        if (!suggestedId) {
+          // Fallback: pick first eligible player from the already-sorted list
+          const fallback = players.find((p) =>
+            ["AVAILABLE", "UNSOLD"].includes(String(p.status || "").toUpperCase())
+          );
+          if (!fallback) return;
+
+          const selRes = await api.post(`/live/${auctionId}/select-player`, {
+            player_id: Number(fallback.id),
+          });
+          if (selRes?.data?.snapshot) {
+            setSnapshot(selRes.data.snapshot);
+            setState(selRes.data.snapshot.state);
+            setBid(Number(selRes.data.snapshot.state?.current_bid || selRes.data.snapshot.state?.base_price || 0));
+            setIncrement((old) => Number(selRes.data.snapshot.state?.current_bid_increment || old));
+            setSelectionMode((old) => selRes.data.snapshot.state?.selection_mode || old);
+          }
+          await load();
+          return;
+        }
+
+        // Step 2: select-player actually puts the player on the block (sets current_player_id + photo)
+        const selRes = await api.post(`/live/${auctionId}/select-player`, {
+          player_id: Number(suggestedId),
+        });
+        if (selRes?.data?.snapshot) {
+          setSnapshot(selRes.data.snapshot);
+          setState(selRes.data.snapshot.state);
+          setBid(Number(selRes.data.snapshot.state?.current_bid || selRes.data.snapshot.state?.base_price || 0));
+          setIncrement((old) => Number(selRes.data.snapshot.state?.current_bid_increment || old));
+          setSelectionMode((old) => selRes.data.snapshot.state?.selection_mode || old);
+        }
+        await load();
+      } catch (err) {
+        console.error("Auto-load first player failed", err);
+        autoLoadedRef.current = false; // allow retry on next render if request failed
+      }
+    })();
+  }, [state, players, auction]);
 
   useEffect(() => {
     socket.emit("joinAuction", Number(auctionId));
@@ -320,10 +473,30 @@ export default function LiveControl() {
     [players, state]
   );
 
-  const eligiblePlayers = useMemo(
-    () => players.filter((p) => ["AVAILABLE", "UNSOLD"].includes(String(p.status || "").toUpperCase())),
-    [players]
-  );
+  const isCategoryWise = useMemo(() => {
+    return (
+      auction?.auction_type === "CATEGORY_WISE" ||
+      categories?.length > 0 ||
+      String(auction?.auction_flow_type || auction?.category_flow || "").startsWith("CATEGORY")
+    );
+  }, [auction, categories]);
+
+  const eligiblePlayers = useMemo(() => {
+    const list = players.filter((p) => ["AVAILABLE", "UNSOLD"].includes(String(p.status || "").toUpperCase()));
+    if (isCategoryWise && categories?.length > 0) {
+      const orderMap = {};
+      categories.forEach((c, idx) => {
+        orderMap[String(c.category_name).trim().toUpperCase()] = Number(c.display_order ?? (idx + 1));
+      });
+      return [...list].sort((a, b) => {
+        const ordA = orderMap[String(a.category || "").trim().toUpperCase()] ?? 999;
+        const ordB = orderMap[String(b.category || "").trim().toUpperCase()] ?? 999;
+        if (ordA !== ordB) return ordA - ordB;
+        return Number(a.serial_number || 0) - Number(b.serial_number || 0);
+      });
+    }
+    return list;
+  }, [players, isCategoryWise, categories]);
 
   const isAuctionCompleted =
     state?.state === "COMPLETED" ||
@@ -494,6 +667,19 @@ export default function LiveControl() {
     await call(() => api.post(`/live/${auctionId}/resume`));
   }
 
+  async function handleNextPlayer() {
+    clearSelectedTeam();
+    if (suggestedPlayer?.id) {
+      await selectManualPlayer(suggestedPlayer.id);
+      return;
+    }
+    const res = await call(() => api.post(`/live/${auctionId}/suggest-next`));
+    const nextId = res?.data?.suggested?.id;
+    if (nextId) {
+      await selectManualPlayer(nextId);
+    }
+  }
+
   // --- Audit & Correction ---
   async function loadAuditLog() {
     try {
@@ -639,14 +825,24 @@ export default function LiveControl() {
                 </div>
               </div>
 
-              {auction?.auction_type === "CATEGORY_WISE" && !isAuctionCompleted && (
+              {isCategoryWise && !isAuctionCompleted && (
                 <div className="mt-3 flex items-center justify-between rounded-lg border border-slate-200 bg-slate-100 px-3 py-2">
                   <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                    Curr: <span className="text-slate-900">{state?.current_category || "N/A"}</span>
+                    Curr: <span className="text-slate-900">{state?.current_category || currentPlayer?.category || "N/A"}</span>
                   </div>
                   <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                     Next: <span className="text-slate-900">
-                      {categories[categories.findIndex(c => c.category_name === state?.current_category) + 1]?.category_name || "None"}
+                      {(() => {
+                        const cur = String(state?.current_category || currentPlayer?.category || "").trim().toUpperCase();
+                        const idx = categories.findIndex((c) => String(c.category_name).trim().toUpperCase() === cur);
+                        if (idx >= 0 && idx + 1 < categories.length) {
+                          return categories[idx + 1].category_name;
+                        }
+                        if (idx === -1 && categories.length > 0) {
+                          return categories[0].category_name;
+                        }
+                        return "None";
+                      })()}
                     </span>
                   </div>
                 </div>
@@ -859,7 +1055,7 @@ export default function LiveControl() {
 
               <button
                 disabled={busy || isAuctionCompleted}
-                onClick={() => call(() => api.post(`/live/${auctionId}/suggest-next`), { clearTeam: true })}
+                onClick={handleNextPlayer}
                 className="mt-3 w-full rounded-xl border border-slate-200 bg-white py-2.5 text-xs font-black uppercase tracking-wider text-slate-700 hover:bg-slate-100 disabled:opacity-40 transition-all shadow-2xs"
               >
                 {isAuctionCompleted ? "Auction Complete (No Players Remaining)" : "Next Player"}

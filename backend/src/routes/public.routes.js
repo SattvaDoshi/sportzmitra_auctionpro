@@ -140,8 +140,27 @@ router.get("/auction/:auctionId/reports/team-summary", async (req, res) => {
       [auctionId]
     );
 
-    cache.set(cacheKey, rows, 5_000); // 5-second TTL for reports
-    res.json(rows);
+    let maxBidMap = {};
+    try {
+      const maxBids = await calculateMaxBids(pool, auctionId, null);
+      for (const mb of maxBids) {
+        maxBidMap[mb.team_id] = mb;
+      }
+    } catch (e) {
+      console.error("Failed to calculate max bids in team-summary report", e);
+    }
+
+    const result = rows.map((row) => {
+      const mb = maxBidMap[row.id];
+      return {
+        ...row,
+        max_bid_allowed: mb ? mb.max_bid : row.remaining_purse,
+        min_reserve_required: mb ? mb.min_reserve_required : 0,
+      };
+    });
+
+    cache.set(cacheKey, result, 5_000); // 5-second TTL for reports
+    res.json(result);
   } catch (error) {
     console.error("team summary error", error);
     sendError(res, error);

@@ -44,9 +44,9 @@ VALUES
 INSERT IGNORE INTO auction_categories
   (id, auction_id, category_name, display_order, status, base_price, bid_increment)
 VALUES
-  (9001, 9001, 'A', 1, 'COMPLETED', 1000.00, 500.00),
-  (9002, 9001, 'B', 2, 'IN_PROGRESS', 750.00, 250.00),
-  (9003, 9001, 'C', 3, 'PENDING', 500.00, 250.00);
+  (9001, 9001, 'A', 1, 'ACTIVE', 1000.00, 500.00),
+  (9002, 9001, 'B', 2, 'ACTIVE', 750.00, 250.00),
+  (9003, 9001, 'C', 3, 'ACTIVE', 500.00, 250.00);
 
 INSERT IGNORE INTO teams
   (id, auction_id, team_name, owner_name, owner_mobile, total_purse, remaining_purse,

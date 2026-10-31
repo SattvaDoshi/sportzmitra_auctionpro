@@ -6,6 +6,7 @@ const { mapPublicSnapshot } = require("../utils/spResults");
 const { sendError } = require("../utils/errors");
 const { emitAuctionSnapshot } = require("../socket");
 const { calculateMaxBids, getTeamMaxBid } = require("../utils/maxBid");
+const { syncTeamPurse } = require("../utils/teamPurse");
 const { auctionWriteQueue } = require("../middleware/requestQueue");
 const cache = require("../utils/snapshotCache");
 
@@ -36,23 +37,16 @@ async function callSnapshotProcedure(sql, params) {
 
 async function suggestNextPlayer(auctionId) {
   const [[auction]] = await pool.query(
-    `SELECT auction_flow_type, next_player_selection_mode FROM auctions WHERE id = ?`,
+    `SELECT auction_type, auction_flow_type, category_flow, next_player_selection_mode FROM auctions WHERE id = ?`,
     [auctionId]
   );
   const [[state]] = await pool.query(
-    `SELECT current_category, current_round FROM auction_state WHERE auction_id = ?`,
+    `SELECT s.current_category, s.current_round, s.current_player_id, p.category AS player_category
+     FROM auction_state s
+     LEFT JOIN players p ON p.id = s.current_player_id
+     WHERE s.auction_id = ?`,
     [auctionId]
   );
-
-  // Normalise flow type value (handle legacy names)
-  const rawFlow = auction?.auction_flow_type || "GENERAL";
-  const flow =
-    rawFlow === "CATEGORY_WISE_UNSOLD_AFTER_EACH_CATEGORY" ? "CATEGORY_UNSOLD_AFTER_EACH_CATEGORY"
-    : rawFlow === "CATEGORY_WISE_UNSOLD_AT_END"             ? "CATEGORY_UNSOLD_AT_END"
-    : rawFlow;
-
-  let playerRows  = [];
-  let nextCategory = state?.current_category || null;
 
   // Helper: pick a random available player matching extra WHERE clause
   async function pick(whereSql, params) {
@@ -68,30 +62,73 @@ async function suggestNextPlayer(auctionId) {
     return rows;
   }
 
-  // Get ordered categories list
+  // Get ordered categories list from auction_categories
   const [categories] = await pool.query(
-    `SELECT category_name FROM auction_categories WHERE auction_id = ? AND status = 'ACTIVE' ORDER BY display_order ASC, id ASC`,
+    `SELECT category_name, display_order FROM auction_categories 
+     WHERE auction_id = ? AND COALESCE(status, 'ACTIVE') != 'INACTIVE' 
+     ORDER BY COALESCE(display_order, 999) ASC, id ASC`,
     [auctionId]
   );
-  const categoryList = categories.map(c => c.category_name);
+  const categoryList = categories.map((c) => String(c.category_name).trim()).filter(Boolean);
+
+  // Also include distinct categories from players if any exist that aren't in auction_categories
+  const [playerCats] = await pool.query(
+    `SELECT DISTINCT category FROM players 
+     WHERE auction_id = ? AND category IS NOT NULL AND TRIM(category) != '' 
+       AND COALESCE(is_deleted, 0) = 0
+     ORDER BY category ASC`,
+    [auctionId]
+  );
+  for (const pc of playerCats) {
+    const trimmed = String(pc.category).trim();
+    if (trimmed && !categoryList.some((c) => c.toLowerCase() === trimmed.toLowerCase())) {
+      categoryList.push(trimmed);
+    }
+  }
+
+  const isCategoryAuction =
+    auction?.auction_type === "CATEGORY_WISE" ||
+    categoryList.length > 0 ||
+    String(auction?.auction_flow_type || "").startsWith("CATEGORY");
+
+  // Normalise flow type value (handle legacy names and fallback)
+  let rawFlow = auction?.auction_flow_type || auction?.category_flow;
+  if (!rawFlow || (isCategoryAuction && (rawFlow === "GENERAL" || rawFlow === "GENERAL_UNSOLD_AT_END"))) {
+    rawFlow = isCategoryAuction ? "CATEGORY_UNSOLD_AFTER_EACH_CATEGORY" : "GENERAL";
+  }
+
+  const flow =
+    rawFlow === "CATEGORY_WISE_UNSOLD_AFTER_EACH_CATEGORY" ? "CATEGORY_UNSOLD_AFTER_EACH_CATEGORY"
+    : rawFlow === "CATEGORY_WISE_UNSOLD_AT_END"             ? "CATEGORY_UNSOLD_AT_END"
+    : rawFlow;
+
+  let playerRows = [];
+  let nextCategory = state?.current_category || state?.player_category || null;
+  if (nextCategory) {
+    const matched = categoryList.find((c) => c.toLowerCase() === String(nextCategory).trim().toLowerCase());
+    nextCategory = matched || String(nextCategory).trim();
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   // GENERAL / GENERAL_UNSOLD_AT_END
   //   Loop: AVAILABLE first, then UNSOLD in a continuous cycle.
   //   Unsold players keep coming back until everyone is sold.
   // ─────────────────────────────────────────────────────────────────────────
-  if (flow === "GENERAL" || flow === "GENERAL_UNSOLD_AT_END") {
+  if (!isCategoryAuction || flow === "GENERAL" || flow === "GENERAL_UNSOLD_AT_END") {
     // 1. Any AVAILABLE player
     playerRows = await pick(`AND status = 'AVAILABLE'`, []);
     // 2. No AVAILABLE left → loop in UNSOLD players non-stop
     if (playerRows.length === 0) {
       playerRows = await pick(`AND status = 'UNSOLD'`, []);
     }
+    if (playerRows.length > 0) {
+      nextCategory = playerRows[0].category || nextCategory;
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
   // CATEGORY_UNSOLD_AT_END
-  //   Round 1 (MAIN): Go through all categories in order, AVAILABLE only.
+  //   Round 1 (MAIN): Go through all categories in order (1 -> 2 -> 3...), AVAILABLE only.
   //   Round 2+ (UNSOLD): After all AVAILABLE are gone, cycle through all
   //   categories in order again with UNSOLD players. Repeat until everyone sold.
   // ─────────────────────────────────────────────────────────────────────────
@@ -104,40 +141,69 @@ async function suggestNextPlayer(auctionId) {
     );
 
     if (availableCount > 0) {
-      // MAIN round: serve categories in order
-      // Try current category first, then walk the ordered list
+      // MAIN round: serve categories strictly in display_order
+      // 1. Try current category first (if set)
       if (nextCategory) {
-        playerRows = await pick(`AND status = 'AVAILABLE' AND category = ?`, [nextCategory]);
+        playerRows = await pick(`AND status = 'AVAILABLE' AND UPPER(TRIM(category)) = UPPER(TRIM(?))`, [nextCategory]);
       }
+      // 2. If current category has no AVAILABLE players, advance strictly in forward category order
       if (playerRows.length === 0) {
-        for (const cat of categoryList) {
-          playerRows = await pick(`AND status = 'AVAILABLE' AND category = ?`, [cat]);
-          if (playerRows.length > 0) { nextCategory = cat; break; }
+        const startIdx = nextCategory
+          ? categoryList.findIndex((c) => c.toLowerCase() === nextCategory.toLowerCase())
+          : -1;
+        const forwardCategories = startIdx >= 0 ? categoryList.slice(startIdx + 1) : categoryList;
+
+        for (const cat of forwardCategories) {
+          playerRows = await pick(`AND status = 'AVAILABLE' AND UPPER(TRIM(category)) = UPPER(TRIM(?))`, [cat]);
+          if (playerRows.length > 0) {
+            nextCategory = cat;
+            break;
+          }
+        }
+
+        // Wrap around from beginning if end was reached and some categories still have available players
+        if (playerRows.length === 0 && startIdx > 0) {
+          const wrapCategories = categoryList.slice(0, startIdx);
+          for (const cat of wrapCategories) {
+            playerRows = await pick(`AND status = 'AVAILABLE' AND UPPER(TRIM(category)) = UPPER(TRIM(?))`, [cat]);
+            if (playerRows.length > 0) {
+              nextCategory = cat;
+              break;
+            }
+          }
         }
       }
-      // Fallback: any AVAILABLE regardless of category (shouldn't normally hit)
+      // 3. Fallback only if unassigned categories exist
       if (playerRows.length === 0) {
         playerRows = await pick(`AND status = 'AVAILABLE'`, []);
         if (playerRows.length > 0) nextCategory = playerRows[0].category;
       }
     } else {
       // UNSOLD round: all AVAILABLE are gone → loop unsold in category order
-      // Try current category first, then ordered list, then restart from Cat 1
-      if (nextCategory) {
-        playerRows = await pick(`AND status = 'UNSOLD' AND category = ?`, [nextCategory]);
+      const isRoundTransition = (state?.current_round || "MAIN") === "MAIN";
+
+      // 1. Try current category first (if set and not freshly transitioned from MAIN round)
+      if (!isRoundTransition && nextCategory) {
+        playerRows = await pick(`AND status = 'UNSOLD' AND UPPER(TRIM(category)) = UPPER(TRIM(?))`, [nextCategory]);
       }
+      // 2. If transitioning or current category has no UNSOLD players, advance in category order
       if (playerRows.length === 0) {
-        // Walk the ordered category list
-        const startIdx = nextCategory ? categoryList.indexOf(nextCategory) : -1;
-        const orderedTail = startIdx >= 0
+        const startIdx = (!isRoundTransition && nextCategory)
+          ? categoryList.findIndex((c) => c.toLowerCase() === nextCategory.toLowerCase())
+          : -1;
+        const searchOrder = startIdx >= 0
           ? [...categoryList.slice(startIdx + 1), ...categoryList.slice(0, startIdx + 1)]
           : categoryList;
-        for (const cat of orderedTail) {
-          playerRows = await pick(`AND status = 'UNSOLD' AND category = ?`, [cat]);
-          if (playerRows.length > 0) { nextCategory = cat; break; }
+
+        for (const cat of searchOrder) {
+          playerRows = await pick(`AND status = 'UNSOLD' AND UPPER(TRIM(category)) = UPPER(TRIM(?))`, [cat]);
+          if (playerRows.length > 0) {
+            nextCategory = cat;
+            break;
+          }
         }
       }
-      // Final fallback: any UNSOLD regardless of category
+      // 3. Fallback only if categories somehow missed
       if (playerRows.length === 0) {
         playerRows = await pick(`AND status = 'UNSOLD'`, []);
         if (playerRows.length > 0) nextCategory = playerRows[0].category;
@@ -146,50 +212,72 @@ async function suggestNextPlayer(auctionId) {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // CATEGORY_UNSOLD_AFTER_EACH_CATEGORY
-  //   Within each category: AVAILABLE first → UNSOLD for that category.
-  //   After current category is fully done → move to next category.
-  //   After all categories are done (all players are UNSOLD or SOLD) →
-  //   restart from Cat 1 with remaining UNSOLD, looping until all sold.
+  // CATEGORY_UNSOLD_AFTER_EACH_CATEGORY (Default for Category Auctions)
+  //   Within each category: AVAILABLE first → UNSOLD for that category (1 re-auction).
+  //   After current category is fully done → move strictly to NEXT category in order 1 -> 2 -> 3.
+  //   After all categories are done → restart from Cat 1 with remaining UNSOLD, looping until all sold.
   // ─────────────────────────────────────────────────────────────────────────
   else {
-    // Step 1: Try current category – AVAILABLE then UNSOLD
+    // Step 1: Try current category - AVAILABLE first, then UNSOLD (that haven't had their re-auction yet)
     if (nextCategory) {
-      playerRows = await pick(`AND status = 'AVAILABLE' AND category = ?`, [nextCategory]);
+      playerRows = await pick(`AND status = 'AVAILABLE' AND UPPER(TRIM(category)) = UPPER(TRIM(?))`, [nextCategory]);
       if (playerRows.length === 0) {
-        playerRows = await pick(`AND status = 'UNSOLD' AND category = ?`, [nextCategory]);
+        playerRows = await pick(`AND status = 'UNSOLD' AND COALESCE(unsold_count, 0) <= 1 AND UPPER(TRIM(category)) = UPPER(TRIM(?))`, [nextCategory]);
       }
     }
 
-    // Step 2: Current category exhausted → walk remaining categories in order
+    // Step 2: Current category exhausted → walk remaining categories in strictly ascending order 1 -> 2 -> 3
     if (playerRows.length === 0) {
-      const startIdx = nextCategory ? categoryList.indexOf(nextCategory) : -1;
-      // Try from the next category onwards, then wrap to start
-      const orderedTail = startIdx >= 0
-        ? [...categoryList.slice(startIdx + 1), ...categoryList.slice(0, startIdx + 1)]
-        : categoryList;
+      const startIdx = nextCategory
+        ? categoryList.findIndex((c) => c.toLowerCase() === nextCategory.toLowerCase())
+        : -1;
 
-      for (const cat of orderedTail) {
-        playerRows = await pick(`AND status = 'AVAILABLE' AND category = ?`, [cat]);
+      // First check categories that come AFTER current category (order 1 -> 2 -> 3 ...)
+      const forwardCategories = startIdx >= 0 ? categoryList.slice(startIdx + 1) : categoryList;
+      for (const cat of forwardCategories) {
+        playerRows = await pick(`AND status = 'AVAILABLE' AND UPPER(TRIM(category)) = UPPER(TRIM(?))`, [cat]);
         if (playerRows.length === 0) {
-          playerRows = await pick(`AND status = 'UNSOLD' AND category = ?`, [cat]);
+          playerRows = await pick(`AND status = 'UNSOLD' AND COALESCE(unsold_count, 0) <= 1 AND UPPER(TRIM(category)) = UPPER(TRIM(?))`, [cat]);
         }
-        if (playerRows.length > 0) { nextCategory = cat; break; }
+        if (playerRows.length > 0) {
+          nextCategory = cat;
+          break;
+        }
       }
-    }
 
-    // Step 3: All categories exhausted in this pass → start a fresh loop
-    //          from Cat 1 with UNSOLD players (all AVAILABLE are gone)
-    if (playerRows.length === 0) {
-      for (const cat of categoryList) {
-        playerRows = await pick(`AND status = 'UNSOLD' AND category = ?`, [cat]);
-        if (playerRows.length > 0) { nextCategory = cat; break; }
+      // Step 3: If end of category list reached, check categories before current (wrap around if any available players remain)
+      if (playerRows.length === 0 && startIdx > 0) {
+        const wrappedCategories = categoryList.slice(0, startIdx);
+        for (const cat of wrappedCategories) {
+          playerRows = await pick(`AND status = 'AVAILABLE' AND UPPER(TRIM(category)) = UPPER(TRIM(?))`, [cat]);
+          if (playerRows.length === 0) {
+            playerRows = await pick(`AND status = 'UNSOLD' AND COALESCE(unsold_count, 0) <= 1 AND UPPER(TRIM(category)) = UPPER(TRIM(?))`, [cat]);
+          }
+          if (playerRows.length > 0) {
+            nextCategory = cat;
+            break;
+          }
+        }
+      }
+
+      // Step 4: Final loop through Cat 1..N for any remaining UNSOLD across all categories
+      if (playerRows.length === 0) {
+        for (const cat of categoryList) {
+          playerRows = await pick(`AND status = 'UNSOLD' AND UPPER(TRIM(category)) = UPPER(TRIM(?))`, [cat]);
+          if (playerRows.length > 0) {
+            nextCategory = cat;
+            break;
+          }
+        }
       }
     }
   }
 
   const suggested    = playerRows[0] || null;
   const currentRound = suggested?.status === "UNSOLD" ? "UNSOLD" : "MAIN";
+  if (suggested?.category) {
+    nextCategory = suggested.category;
+  }
 
   await pool.query(
     `UPDATE auction_state
@@ -230,6 +318,12 @@ async function autoSelectNextIfRandom(auctionId, userId) {
       suggested.id,
       userId,
     ]);
+    if (suggested?.category) {
+      await pool.query(
+        `UPDATE auction_state SET current_category = ? WHERE auction_id = ?`,
+        [suggested.category, auctionId]
+      );
+    }
     return { mode, suggested, autoSelected: true };
   }
 
@@ -313,6 +407,13 @@ router.post(
         playerId,
         req.user.userId,
       ]);
+
+      await pool.query(
+        `UPDATE auction_state 
+         SET current_category = COALESCE((SELECT category FROM players WHERE id = ?), current_category)
+         WHERE auction_id = ?`,
+        [playerId, auctionId]
+      );
 
       cache.invalidate(auctionId);
       emitAuctionSnapshot(auctionId, snapshot, "playerSelected");
@@ -468,7 +569,23 @@ router.post(
   async (req, res) => {
     try {
       const auctionId = Number(req.params.auctionId);
-      const suggested = await suggestNextPlayer(auctionId);
+      const [[stateRow]] = await pool.query(
+        `SELECT selection_mode FROM auction_state WHERE auction_id = ?`,
+        [auctionId]
+      );
+      const [[aucRow]] = await pool.query(
+        `SELECT next_player_selection_mode FROM auctions WHERE id = ?`,
+        [auctionId]
+      );
+      const mode = stateRow?.selection_mode || aucRow?.next_player_selection_mode || "RANDOM_WITH_ADMIN_CONFIRM";
+
+      let suggested;
+      if (mode === "RANDOM") {
+        const next = await autoSelectNextIfRandom(auctionId, req.user.userId);
+        suggested = next.suggested;
+      } else {
+        suggested = await suggestNextPlayer(auctionId);
+      }
       const snapshot = await loadSnapshot(auctionId);
       cache.invalidate(auctionId);
       emitAuctionSnapshot(auctionId, snapshot, "nextPlayerSuggested");
@@ -831,43 +948,66 @@ router.post(
          else if (player?.status === 'UNSOLD') nextState = 'UNSOLD';
          else if (player?.status === 'FINAL_UNSOLD') nextState = 'FINAL_UNSOLD';
       } else {
-         // Auto-select a player if none is currently active
-         const [[catRow]] = await conn.query(
-           `SELECT category FROM players 
-            WHERE auction_id = ? AND status = 'AVAILABLE' AND COALESCE(is_deleted, 0) = 0 
-              AND category IS NOT NULL AND category != ''
-            ORDER BY category ASC LIMIT 1`, 
+         // Auto-select a player if none is currently active, respecting category display_order
+         const [catRows] = await conn.query(
+           `SELECT category_name FROM auction_categories 
+            WHERE auction_id = ? AND COALESCE(status, 'ACTIVE') != 'INACTIVE' 
+            ORDER BY display_order ASC, id ASC`,
            [auctionId]
          );
 
-         let playerQuery = `SELECT id FROM players WHERE auction_id = ? AND status = 'AVAILABLE' AND COALESCE(is_deleted, 0) = 0`;
-         let queryParams = [auctionId];
+         let selectedPlayer = null;
+         let selectedCategory = null;
 
-         if (catRow && catRow.category) {
-            playerQuery += ` AND category = ?`;
-            queryParams.push(catRow.category);
+         for (const c of catRows) {
+           const [[p]] = await conn.query(
+             `SELECT id, category FROM players 
+              WHERE auction_id = ? AND status = 'AVAILABLE' AND COALESCE(is_deleted, 0) = 0 
+                AND TRIM(category) = ?
+              ORDER BY RAND() LIMIT 1`,
+             [auctionId, String(c.category_name).trim()]
+           );
+           if (p) {
+             selectedPlayer = p;
+             selectedCategory = c.category_name;
+             break;
+           }
          }
-         playerQuery += ` ORDER BY RAND() LIMIT 1`;
 
-         const [[randomPlayer]] = await conn.query(playerQuery, queryParams);
+         if (!selectedPlayer) {
+           const [[p]] = await conn.query(
+             `SELECT id, category FROM players 
+              WHERE auction_id = ? AND status = 'AVAILABLE' AND COALESCE(is_deleted, 0) = 0 
+              ORDER BY id ASC LIMIT 1`,
+             [auctionId]
+           );
+           if (p) {
+             selectedPlayer = p;
+             selectedCategory = p.category;
+           }
+         }
 
-         if (randomPlayer) {
-           newPlayerId = randomPlayer.id;
+         if (selectedPlayer) {
+           newPlayerId = selectedPlayer.id;
            nextState = 'PLAYER_ACTIVE';
            
            await conn.query(`UPDATE players SET status = 'IN_AUCTION' WHERE id = ?`, [newPlayerId]);
            
            await conn.query(
              `UPDATE auction_state 
-              SET current_player_id = ?, state = ?, updated_by_user_id = ? 
+              SET current_player_id = ?, 
+                  current_category = ?,
+                  current_bid = (SELECT COALESCE(base_price, 0) FROM players WHERE id = ?),
+                  state = ?, 
+                  updated_by_user_id = ? 
               WHERE auction_id = ?`,
-             [newPlayerId, nextState, req.user.userId, auctionId]
+             [newPlayerId, selectedCategory, newPlayerId, nextState, req.user.userId, auctionId]
            );
            
            await conn.query(
              `INSERT INTO auction_action_logs (auction_id, action_type, new_data, performed_by_user_id, reason)
-              VALUES (?, 'PLAYER_SELECTED', JSON_OBJECT('player_id', ?), ?, ?)`,
-             [auctionId, newPlayerId, req.user.userId, "Auto-selected on start"]
+              VALUES (?, 'PLAYER_SELECTED', JSON_OBJECT('player_id', ?, 'category', ?), ?, ?)`,
+             [auctionId, newPlayerId, selectedCategory, req.user.userId, "Auto-selected on resume"]
            );
          }
       }
@@ -935,7 +1075,7 @@ router.get(
 
 // ── Correction ────────────────────────────────────────────────────────────────
 router.post(
-  "/:auctionId/correct",
+  ["/:auctionId/correct", "/:auctionId/correction"],
   authMiddleware,
   requireRole("AUCTION_ADMIN", "SUPER_ADMIN"),
   checkAuctionAccess("auctionId"),
@@ -966,45 +1106,37 @@ router.post(
       const correctedPrice = Number(new_price);
       const targetTeamId = Number(new_team_id);
 
-      // 2. Reverse old team purse (restore what was spent, updating both remaining_purse and balance_purse)
-      if (oldTeamId) {
-        await conn.query(
-          `UPDATE teams 
-           SET remaining_purse = remaining_purse + ?,
-               balance_purse = COALESCE(balance_purse, remaining_purse) + ?
-           WHERE id = ? AND auction_id = ?`,
-          [oldPrice, oldPrice, oldTeamId, auctionId]
-        );
-      }
-
-      // 3. Load target team AFTER restoring old purse (crucial if same team is being corrected)
-      const [[newTeam]] = await conn.query(
-        `SELECT id, team_name, remaining_purse, balance_purse FROM teams
-         WHERE id = ? AND auction_id = ? AND status = 'ACTIVE' FOR UPDATE`,
+      // 2. Load target team and validate purse sufficiency
+      const [[targetTeam]] = await conn.query(
+        `SELECT id, team_name, total_purse, remaining_purse FROM teams
+         WHERE id = ? AND auction_id = ? AND COALESCE(is_deleted, 0) = 0 FOR UPDATE`,
         [targetTeamId, auctionId]
       );
-      if (!newTeam) throw new Error("Target team not found");
+      if (!targetTeam) throw new Error("Target team not found");
 
-      // 4. Validate new team has enough purse
-      const newPurseAfter = Number(newTeam.remaining_purse) - correctedPrice;
-      if (newPurseAfter < 0) throw new Error("New team does not have enough purse for this correction");
-
-      // 5. Deduct from new team (updating both remaining_purse and balance_purse)
-      await conn.query(
-        `UPDATE teams 
-         SET remaining_purse = remaining_purse - ?,
-             balance_purse = COALESCE(balance_purse, remaining_purse) - ?
-         WHERE id = ? AND auction_id = ?`,
-        [correctedPrice, correctedPrice, targetTeamId, auctionId]
+      const [[spentRow]] = await conn.query(
+        `SELECT COALESCE(SUM(sold_price), 0) AS total_spent FROM players
+         WHERE auction_id = ? AND sold_team_id = ? AND status = 'SOLD' AND id != ? AND COALESCE(is_deleted, 0) = 0`,
+        [auctionId, targetTeamId, player_id]
       );
+      const targetTotalPurse = Number(targetTeam.total_purse || targetTeam.remaining_purse || 0);
+      const targetSpentOther = Number(spentRow?.total_spent || 0);
+      const availablePurse = targetTotalPurse - targetSpentOther;
 
-      // 6. Update player
+      if (availablePurse < correctedPrice) {
+        throw new Error(`Team ${targetTeam.team_name} does not have enough purse (${availablePurse} available, needed ${correctedPrice})`);
+      }
+
+      // 3. Update player record
       await conn.query(
         `UPDATE players SET sold_team_id = ?, sold_price = ?, sold_amount = ? WHERE id = ?`,
         [targetTeamId, correctedPrice, correctedPrice, player_id]
       );
 
-      // 7. Update auction_state if this player is currently active in state
+      // 4. Sync team purses from ground truth (guarantees accurate remaining_purse & balance_purse)
+      await syncTeamPurse(conn, auctionId, [oldTeamId, targetTeamId]);
+
+      // 5. Update auction_state if this player is currently active in state
       const [[currentState]] = await conn.query(
         `SELECT current_player_id FROM auction_state WHERE auction_id = ?`,
         [auctionId]
@@ -1018,13 +1150,13 @@ router.post(
         );
       }
 
-      // 8. Audit log
+      // 6. Audit log (action_type strictly matches MySQL ENUM 'PLAYER_CORRECTION')
       const oldData = JSON.stringify({ team_id: oldTeamId, price: oldPrice });
       const newData = JSON.stringify({ team_id: targetTeamId, price: correctedPrice });
       await conn.query(
         `INSERT INTO auction_action_logs
            (auction_id, player_id, team_id, action_type, old_data, new_data, performed_by_user_id, reason)
-         VALUES (?, ?, ?, 'CORRECTION', ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, 'PLAYER_CORRECTION', ?, ?, ?, ?)`,
         [auctionId, player_id, targetTeamId, oldData, newData, req.user.userId, reason || "Manual correction"]
       );
 

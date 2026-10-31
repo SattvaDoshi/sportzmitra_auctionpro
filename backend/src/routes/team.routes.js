@@ -7,6 +7,7 @@ const pool = require("../config/db");
 const { authMiddleware, requireRole } = require("../middleware/authMiddleware");
 const { userHasAuctionAccess } = require("../middleware/accessMiddleware");
 const { sendError } = require("../utils/errors");
+const { calculateMaxBids } = require("../utils/maxBid");
 
 const router = express.Router();
 
@@ -77,6 +78,16 @@ router.get("/auction/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
       spentByTeam[row.team_id] = Number(row.spent);
     }
 
+    let maxBidMap = {};
+    try {
+      const maxBids = await calculateMaxBids(pool, auctionId, null);
+      for (const mb of maxBids) {
+        maxBidMap[mb.team_id] = mb;
+      }
+    } catch (e) {
+      console.error("Failed to calculate max bids in team routes", e);
+    }
+
     const teams = rows.map((team) => {
       const balancePurse =
         Number(
@@ -91,6 +102,7 @@ router.get("/auction/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
 
       const spent = spentByTeam[team.id] || 0;
       const totalPurse = balancePurse + spent; // Dynamically calculated to match dashboard snapshot
+      const mb = maxBidMap[team.id];
 
       return {
         ...team,
@@ -99,6 +111,9 @@ router.get("/auction/:auctionId", authMiddleware, requireRole("AUCTION_ADMIN", "
         remaining_purse: balancePurse,
         used_purse: spent,
         players_bought: Number(soldByTeam[team.id] || team.players_bought || 0),
+        max_bid: mb ? mb.max_bid : balancePurse,
+        max_bid_allowed: mb ? mb.max_bid : balancePurse,
+        min_reserve_required: mb ? mb.min_reserve_required : 0,
       };
     });
 

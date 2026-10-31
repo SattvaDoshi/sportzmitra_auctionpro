@@ -420,37 +420,64 @@ router.put(
         );
       }
 
-      // If auction is made LIVE and there's no active player, auto-select one
+      // If auction is made LIVE and there's no active player, auto-select one respecting category display_order
       if (existing.status !== "LIVE" && newStatus === "LIVE") {
         const [[state]] = await conn.query(`SELECT current_player_id FROM auction_state WHERE auction_id = ?`, [auctionId]);
         if (!state?.current_player_id) {
-          const [[catRow]] = await conn.query(
-            `SELECT category FROM players 
-             WHERE auction_id = ? AND status = 'AVAILABLE' AND COALESCE(is_deleted, 0) = 0 
-               AND category IS NOT NULL AND category != ''
-             ORDER BY category ASC LIMIT 1`, 
+          const [catRows] = await conn.query(
+            `SELECT category_name FROM auction_categories 
+             WHERE auction_id = ? AND COALESCE(status, 'ACTIVE') != 'INACTIVE' 
+             ORDER BY display_order ASC, id ASC`,
             [auctionId]
           );
 
-          let playerQuery = `SELECT id FROM players WHERE auction_id = ? AND status = 'AVAILABLE' AND COALESCE(is_deleted, 0) = 0`;
-          let queryParams = [auctionId];
-          if (catRow && catRow.category) {
-             playerQuery += ` AND category = ?`;
-             queryParams.push(catRow.category);
-          }
-          playerQuery += ` ORDER BY RAND() LIMIT 1`;
+          let selectedPlayer = null;
+          let selectedCategory = null;
 
-          const [[randomPlayer]] = await conn.query(playerQuery, queryParams);
-          if (randomPlayer) {
-            await conn.query(`UPDATE players SET status = 'IN_AUCTION' WHERE id = ?`, [randomPlayer.id]);
+          for (const c of catRows) {
+            const [[p]] = await conn.query(
+              `SELECT id, category FROM players 
+               WHERE auction_id = ? AND status = 'AVAILABLE' AND COALESCE(is_deleted, 0) = 0 
+                 AND TRIM(category) = ?
+               ORDER BY RAND() LIMIT 1`,
+              [auctionId, String(c.category_name).trim()]
+            );
+            if (p) {
+              selectedPlayer = p;
+              selectedCategory = c.category_name;
+              break;
+            }
+          }
+
+          if (!selectedPlayer) {
+            const [[p]] = await conn.query(
+              `SELECT id, category FROM players 
+               WHERE auction_id = ? AND status = 'AVAILABLE' AND COALESCE(is_deleted, 0) = 0 
+               ORDER BY id ASC LIMIT 1`,
+              [auctionId]
+            );
+            if (p) {
+              selectedPlayer = p;
+              selectedCategory = p.category;
+            }
+          }
+
+          if (selectedPlayer) {
+            await conn.query(`UPDATE players SET status = 'IN_AUCTION' WHERE id = ?`, [selectedPlayer.id]);
             await conn.query(
-              `UPDATE auction_state SET current_player_id = ?, state = 'PLAYER_ACTIVE', updated_by_user_id = ? WHERE auction_id = ?`,
-              [randomPlayer.id, req.user.userId, auctionId]
+              `UPDATE auction_state 
+               SET current_player_id = ?, 
+                   current_category = ?, 
+                   current_bid = (SELECT COALESCE(base_price, 0) FROM players WHERE id = ?),
+                   state = 'PLAYER_ACTIVE', 
+                   updated_by_user_id = ? 
+               WHERE auction_id = ?`,
+              [selectedPlayer.id, selectedCategory, selectedPlayer.id, req.user.userId, auctionId]
             );
             await conn.query(
               `INSERT INTO auction_action_logs (auction_id, action_type, new_data, performed_by_user_id, reason)
-               VALUES (?, 'PLAYER_SELECTED', JSON_OBJECT('player_id', ?), ?, ?)`,
-              [auctionId, randomPlayer.id, req.user.userId, "Auto-selected on Make Live"]
+               VALUES (?, 'PLAYER_SELECTED', JSON_OBJECT('player_id', ?, 'category', ?), ?, ?)`,
+              [auctionId, selectedPlayer.id, selectedCategory, req.user.userId, "Auto-selected on Make Live"]
             );
           }
         }
