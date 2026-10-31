@@ -496,7 +496,7 @@ function PlayerList({ rows = [], type, onPhotoClick }) {
   if (!rows.length) return <Empty text="No player data matching criteria" />;
 
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3">
       {rows.map((p) => (
         <PlayerCard key={p.id} p={p} type={type} onPhotoClick={onPhotoClick} />
       ))}
@@ -505,25 +505,17 @@ function PlayerList({ rows = [], type, onPhotoClick }) {
 }
 
 /* Compact card: photo on the left, all properties on the right.
-   Same card size as before - only the photo is a little bigger. */
+   - Price is always shown fully on one line (no mid-number truncation).
+   - "Acquired By" team name wraps to a second line instead of clipping. */
 function PlayerCard({ p, type, onPhotoClick }) {
   const isSold = type === "sold";
   const isPending = type === "pending";
   const age = getAge(p);
-  const labelCls = "text-[8px] font-black uppercase tracking-wider text-slate-400 sm:text-[9px]";
-
-  // Rows shown on the right (first row is highlighted)
-  const rows = [
-    isSold
-      ? { label: "Final Points", value: money(p.sold_price), highlight: true }
-      : { label: "Base Points", value: money(p.base_price), highlight: true },
-  ];
-  if (isSold) rows.push({ label: "Acquired By", value: p.sold_team_name || "-" });
-  else if (isPending && age !== "-") rows.push({ label: "Age", value: age });
+  const labelCls = "shrink-0 text-[8px] font-black uppercase tracking-wider text-slate-400 sm:text-[9px]";
 
   return (
-    <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white p-2 shadow-sm transition hover:border-[#8DC63F] sm:p-2.5">
-      {/* Photo (left) */}
+    <div className="flex items-start gap-2.5 rounded-xl border border-slate-200 bg-white p-2 shadow-sm transition hover:border-[#8DC63F] sm:p-2.5">
+      {/* Photo (left) — fixed width so it never shrinks */}
       <SquareAvatar
         name={p.player_name}
         photoUrl={p.photo_url}
@@ -533,30 +525,46 @@ function PlayerCard({ p, type, onPhotoClick }) {
 
       {/* Properties (right) */}
       <div className="flex min-w-0 flex-1 flex-col justify-center">
+        {/* Name */}
         <div className="truncate text-[13px] font-bold leading-tight text-slate-900 sm:text-sm">
           {p.serial_number ? `${p.serial_number} - ` : ""}{p.player_name}
         </div>
+
+        {/* Role · Category */}
         <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[9px] font-semibold uppercase text-slate-500 sm:text-[10px]">
           <span className="truncate">{p.player_role || "N/A"}</span>
           <span className="h-1 w-1 shrink-0 rounded-full bg-slate-300" />
           <span className="truncate">{p.category || "N/A"}</span>
         </div>
 
-        <div className="mt-1.5 grid gap-1 border-t border-slate-100 pt-1.5">
-          {rows.map((r) => (
-            <div key={r.label} className="flex items-baseline justify-between gap-2">
-              <span className={labelCls}>{r.label}</span>
-              <span
-                className={`min-w-0 truncate text-right font-black ${
-                  r.highlight ? "text-sm text-[#629221]" : "text-[11px] text-slate-800"
-                }`}
-              >
-                {r.value}
+        {/* Stats */}
+        <div className="mt-1.5 space-y-1 border-t border-slate-100 pt-1.5">
+          {/* Price — shrink-0 on value so number is never cut mid-digit */}
+          <div className="flex items-baseline justify-between gap-1">
+            <span className={labelCls}>{isSold ? "Final Points" : "Base Points"}</span>
+            <span className="shrink-0 font-black text-sm text-[#629221]">
+              {money(isSold ? p.sold_price : p.base_price)}
+            </span>
+          </div>
+
+          {/* Acquired By — wraps cleanly, never clips mid-character */}
+          {isSold && (
+            <div className="flex items-start justify-between gap-1">
+              <span className={labelCls + " mt-0.5"}>Acquired By</span>
+              <span className="min-w-0 text-right text-[11px] font-black leading-tight text-slate-800 break-words">
+                {p.sold_team_name || "-"}
               </span>
             </div>
-          ))}
-        </div>
+          )}
 
+          {/* Age (pending) */}
+          {isPending && age !== "-" && (
+            <div className="flex items-baseline justify-between gap-1">
+              <span className={labelCls}>Age</span>
+              <span className="shrink-0 text-[11px] font-black text-slate-800">{age}</span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

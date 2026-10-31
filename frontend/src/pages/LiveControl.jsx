@@ -245,10 +245,6 @@ export default function LiveControl() {
   // Two-step: suggest-next (picks the right player respecting category order) →
   // select-player (puts the player on the block with photo, base price, etc.).
   // Runs once per auction session (guarded by autoLoadedRef).
-  // Auto-load first player onto the block when auction is live but no player is active yet.
-  // Two-step: suggest-next (picks the right player respecting category order) →
-  // select-player (puts the player on the block with photo, base price, etc.).
-  // Runs once per auction session (guarded by autoLoadedRef).
   useEffect(() => {
     if (autoLoadedRef.current) return;          // already triggered this session
     if (!state) return;                         // snapshot not loaded yet
@@ -319,75 +315,6 @@ export default function LiveControl() {
     })();
   }, [state, players, auction]);
 
-  useEffect(() => {
-    if (autoLoadedRef.current) return;          // already triggered this session
-    if (!state) return;                         // snapshot not loaded yet
-    if (!players.length) return;               // player list not loaded yet
-
-    const currentState = String(state?.state || "").toUpperCase();
-    const hasPlayerOnBlock = Number(state?.current_player_id || 0) > 0;
-    const isActive = ["LIVE", "IN_PROGRESS", "ACTIVE"].includes(
-      String(auction?.status || "").toUpperCase()
-    );
-    // Only auto-load when truly no one is on the block yet
-    const isIdleState =
-      ["WAITING", "IDLE", "NOT_STARTED", ""].includes(currentState) || !currentState;
-    const hasEligible = players.some((p) =>
-      ["AVAILABLE", "UNSOLD"].includes(String(p.status || "").toUpperCase())
-    );
-
-    if (!isActive || hasPlayerOnBlock || !isIdleState || !hasEligible) return;
-
-    autoLoadedRef.current = true; // guard: prevent double-fire before async resolves
-
-    (async () => {
-      try {
-        // Step 1: ask backend to pick the correct next player (respects category order)
-        const suggestRes = await api.post(`/live/${auctionId}/suggest-next`);
-        const suggestedId =
-          suggestRes?.data?.suggested?.id ||
-          suggestRes?.data?.snapshot?.state?.suggested_player_id ||
-          null;
-
-        if (!suggestedId) {
-          // Fallback: pick first eligible player from the already-sorted list
-          const fallback = players.find((p) =>
-            ["AVAILABLE", "UNSOLD"].includes(String(p.status || "").toUpperCase())
-          );
-          if (!fallback) return;
-
-          const selRes = await api.post(`/live/${auctionId}/select-player`, {
-            player_id: Number(fallback.id),
-          });
-          if (selRes?.data?.snapshot) {
-            setSnapshot(selRes.data.snapshot);
-            setState(selRes.data.snapshot.state);
-            setBid(Number(selRes.data.snapshot.state?.current_bid || selRes.data.snapshot.state?.base_price || 0));
-            setIncrement((old) => Number(selRes.data.snapshot.state?.current_bid_increment || old));
-            setSelectionMode((old) => selRes.data.snapshot.state?.selection_mode || old);
-          }
-          await load();
-          return;
-        }
-
-        // Step 2: select-player actually puts the player on the block (sets current_player_id + photo)
-        const selRes = await api.post(`/live/${auctionId}/select-player`, {
-          player_id: Number(suggestedId),
-        });
-        if (selRes?.data?.snapshot) {
-          setSnapshot(selRes.data.snapshot);
-          setState(selRes.data.snapshot.state);
-          setBid(Number(selRes.data.snapshot.state?.current_bid || selRes.data.snapshot.state?.base_price || 0));
-          setIncrement((old) => Number(selRes.data.snapshot.state?.current_bid_increment || old));
-          setSelectionMode((old) => selRes.data.snapshot.state?.selection_mode || old);
-        }
-        await load();
-      } catch (err) {
-        console.error("Auto-load first player failed", err);
-        autoLoadedRef.current = false; // allow retry on next render if request failed
-      }
-    })();
-  }, [state, players, auction]);
 
   useEffect(() => {
     socket.emit("joinAuction", Number(auctionId));

@@ -19,13 +19,9 @@ ALTER TABLE players
     'AVAILABLE', 'IN_AUCTION', 'SOLD', 'UNSOLD', 'FINAL_UNSOLD', 'WITHDRAWN'
   ) DEFAULT 'AVAILABLE';
 
--- Expand auction_action_logs.action_type enum with all required values
+-- Ensure auction_action_logs.action_type is VARCHAR(50) so new action types never fail with truncation
 ALTER TABLE auction_action_logs
-  MODIFY COLUMN action_type ENUM(
-    'AUCTION_CREATED', 'AUCTION_RESTORED', 'AUCTION_INACTIVATED',
-    'PLAYER_SELECTED', 'BID_PLACED', 'PLAYER_SOLD', 'PLAYER_UNSOLD',
-    'PLAYER_FINAL_UNSOLD', 'UNDO', 'AUCTION_PAUSED', 'AUCTION_COMPLETED'
-  ) NOT NULL;
+  MODIFY COLUMN action_type VARCHAR(50) NOT NULL;
 
 -- ============================================================
 -- Step 2: Create all missing Stored Procedures

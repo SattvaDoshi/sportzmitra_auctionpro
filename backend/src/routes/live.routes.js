@@ -48,8 +48,10 @@ async function suggestNextPlayer(auctionId) {
     [auctionId]
   );
 
-  // Helper: pick a random available player matching extra WHERE clause
-  async function pick(whereSql, params) {
+  // Helper: pick a random player matching extra WHERE clause.
+  // Category filtering in the callers ensures only the correct category's players are picked.
+  // randomize param kept for signature compatibility but always uses RAND().
+  async function pick(whereSql, params, randomize = true) {
     const [rows] = await pool.query(
       `SELECT id, serial_number, player_name, category, player_role, base_price, status, auction_round, photo_url
        FROM players
@@ -116,10 +118,10 @@ async function suggestNextPlayer(auctionId) {
   // ─────────────────────────────────────────────────────────────────────────
   if (!isCategoryAuction || flow === "GENERAL" || flow === "GENERAL_UNSOLD_AT_END") {
     // 1. Any AVAILABLE player
-    playerRows = await pick(`AND status = 'AVAILABLE'`, []);
+    playerRows = await pick(`AND status = 'AVAILABLE'`, [], true);
     // 2. No AVAILABLE left → loop in UNSOLD players non-stop
     if (playerRows.length === 0) {
-      playerRows = await pick(`AND status = 'UNSOLD'`, []);
+      playerRows = await pick(`AND status = 'UNSOLD'`, [], true);
     }
     if (playerRows.length > 0) {
       nextCategory = playerRows[0].category || nextCategory;
