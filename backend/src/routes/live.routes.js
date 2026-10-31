@@ -429,6 +429,44 @@ router.post(
   }
 );
 
+// PATCH /:auctionId/current-category — admin manually switches active category
+router.patch(
+  "/:auctionId/current-category",
+  authMiddleware,
+  requireRole("AUCTION_ADMIN", "SUPER_ADMIN"),
+  checkAuctionAccess("auctionId"),
+  async (req, res) => {
+    try {
+      const auctionId = Number(req.params.auctionId);
+      const { category } = req.body;
+      if (!category) return res.status(400).json({ message: "category is required" });
+
+      // Verify this category has players in this auction
+      const [[{ cnt }]] = await pool.query(
+        `SELECT COUNT(*) AS cnt FROM players
+         WHERE auction_id = ? AND UPPER(TRIM(category)) = UPPER(TRIM(?)) AND COALESCE(is_deleted,0) = 0`,
+        [auctionId, category]
+      );
+      if (cnt === 0) return res.status(404).json({ message: "No players found in this category" });
+
+      await pool.query(
+        `UPDATE auction_state SET current_category = ?, suggested_player_id = NULL WHERE auction_id = ?`,
+        [category, auctionId]
+      );
+
+      const snapshot = await loadSnapshot(auctionId);
+      cache.invalidate(auctionId);
+      emitAuctionSnapshot(auctionId, snapshot, "categoryChanged");
+      emitAuctionSnapshot(auctionId, snapshot);
+
+      res.json({ message: `Switched to category: ${category}`, snapshot });
+    } catch (error) {
+      console.error("current-category error", error);
+      sendError(res, error);
+    }
+  }
+);
+
 router.post(
   "/:auctionId/bid",
   authMiddleware,

@@ -425,6 +425,29 @@ export default function LiveControl() {
     return list;
   }, [players, isCategoryWise, categories]);
 
+  // Active category = what backend says current_category is (falls back to first cat)
+  const activeCategory = useMemo(() => {
+    if (!isCategoryWise || !categories.length) return null;
+    const fromState = String(state?.current_category || currentPlayer?.category || '').trim();
+    if (fromState) {
+      const matched = categories.find(
+        (c) => String(c.category_name).trim().toUpperCase() === fromState.toUpperCase()
+      );
+      if (matched) return matched.category_name;
+    }
+    // fallback to first category
+    return categories[0]?.category_name || null;
+  }, [isCategoryWise, categories, state, currentPlayer]);
+
+  const nextCategory = useMemo(() => {
+    if (!isCategoryWise || !categories.length || !activeCategory) return null;
+    const idx = categories.findIndex(
+      (c) => String(c.category_name).trim().toUpperCase() === String(activeCategory).trim().toUpperCase()
+    );
+    if (idx >= 0 && idx + 1 < categories.length) return categories[idx + 1].category_name;
+    return null;
+  }, [isCategoryWise, categories, activeCategory]);
+
   const isAuctionCompleted =
     state?.state === "COMPLETED" ||
     auction?.status === "COMPLETED" ||
@@ -434,11 +457,21 @@ export default function LiveControl() {
 
 
   const filteredPlayers = useMemo(() => {
+    // For category-wise auctions, show only players from the active category
+    const source =
+      isCategoryWise && activeCategory
+        ? eligiblePlayers.filter(
+            (p) =>
+              String(p.category || '').trim().toUpperCase() ===
+              String(activeCategory).trim().toUpperCase()
+          )
+        : eligiblePlayers;
+
     const q = manualPlayerSearch.trim();
-    if (!q) return eligiblePlayers.slice(0, 12);
-    const matched = eligiblePlayers.filter((p) => matchesPlayerSearch(p, q));
-    return sortPlayersBySearch(matched, q).slice(0, 12);
-  }, [eligiblePlayers, manualPlayerSearch]);
+    if (!q) return source.slice(0, 20);
+    const matched = source.filter((p) => matchesPlayerSearch(p, q));
+    return sortPlayersBySearch(matched, q).slice(0, 20);
+  }, [eligiblePlayers, manualPlayerSearch, isCategoryWise, activeCategory]);
 
   const filteredTeams = useMemo(() => {
     const q = teamSearch.trim().toLowerCase();
@@ -548,6 +581,24 @@ export default function LiveControl() {
     await call(() => api.post(`/live/${auctionId}/select-player`, { player_id: Number(playerId) }));
     setManualPlayerSearch("");
     clearSelectedTeam();
+  }
+
+  async function switchCategory(categoryName) {
+    try {
+      setBusy(true);
+      setMsg('');
+      const res = await api.patch(`/live/${auctionId}/current-category`, { category: categoryName });
+      if (res?.data?.snapshot) {
+        setSnapshot(res.data.snapshot);
+        setState(res.data.snapshot.state);
+      }
+      await load();
+      setMsg(`Switched to ${categoryName}`);
+    } catch (err) {
+      setMsg(err.response?.data?.message || 'Failed to switch category');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function markSold() {
@@ -752,26 +803,16 @@ export default function LiveControl() {
                 </div>
               </div>
 
-              {isCategoryWise && !isAuctionCompleted && (
-                <div className="mt-3 flex items-center justify-between rounded-lg border border-slate-200 bg-slate-100 px-3 py-2">
+              {isCategoryWise && !isAuctionCompleted && activeCategory && (
+                <div className="mt-3 flex items-center justify-between rounded-lg border border-[#E5007D]/30 bg-[#E5007D]/5 px-3 py-2">
                   <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                    Curr: <span className="text-slate-900">{state?.current_category || currentPlayer?.category || "N/A"}</span>
+                    Active: <span className="text-[#E5007D]">{activeCategory}</span>
                   </div>
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                    Next: <span className="text-slate-900">
-                      {(() => {
-                        const cur = String(state?.current_category || currentPlayer?.category || "").trim().toUpperCase();
-                        const idx = categories.findIndex((c) => String(c.category_name).trim().toUpperCase() === cur);
-                        if (idx >= 0 && idx + 1 < categories.length) {
-                          return categories[idx + 1].category_name;
-                        }
-                        if (idx === -1 && categories.length > 0) {
-                          return categories[0].category_name;
-                        }
-                        return "None";
-                      })()}
-                    </span>
-                  </div>
+                  {nextCategory && (
+                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Next: <span className="text-[#8CC63F]">{nextCategory}</span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -820,6 +861,75 @@ export default function LiveControl() {
                   <Shuffle size={12} /> Auto Suggest
                 </button>
               </div>
+
+              {/* Category progress strip — only for category-wise auctions */}
+              {isCategoryWise && categories.length > 0 && (
+                <div className="mb-2.5 rounded-xl border border-slate-200 bg-white p-2">
+                  {/* Category chips row */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {categories.map((cat, idx) => {
+                      const isActive =
+                        String(cat.category_name).trim().toUpperCase() ===
+                        String(activeCategory || '').trim().toUpperCase();
+                      const isNext =
+                        String(cat.category_name).trim().toUpperCase() ===
+                        String(nextCategory || '').trim().toUpperCase();
+                      // Count players remaining in this category
+                      const remaining = eligiblePlayers.filter(
+                        (p) =>
+                          String(p.category || '').trim().toUpperCase() ===
+                          String(cat.category_name).trim().toUpperCase()
+                      ).length;
+                      const isDone = remaining === 0;
+
+                      return (
+                        <button
+                          key={cat.category_name}
+                          type="button"
+                          disabled={busy || isActive}
+                          title={isActive ? 'Current category' : `Switch to ${cat.category_name}`}
+                          onClick={() => !isActive && switchCategory(cat.category_name)}
+                          className={`relative flex flex-col items-center rounded-lg border px-2 py-1 text-center transition-all ${
+                            isActive
+                              ? 'border-[#E5007D] bg-[#E5007D] text-white shadow-sm cursor-default'
+                              : isDone
+                              ? 'border-slate-200 bg-slate-100 text-slate-400 hover:border-[#E5007D]/50 hover:bg-[#E5007D]/10 cursor-pointer'
+                              : isNext
+                              ? 'border-[#8CC63F]/60 bg-[#8CC63F]/15 text-slate-700 hover:bg-[#8CC63F]/30 cursor-pointer'
+                              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 cursor-pointer'
+                          }`}
+                        >
+                          <span className="text-[9px] font-black uppercase tracking-widest leading-tight">
+                            {cat.category_name}
+                          </span>
+                          <span className={`text-[9px] font-bold leading-tight ${isActive ? 'text-white/80' : 'text-slate-400'}`}>
+                            {isDone ? '✓ done' : `${remaining} left`}
+                          </span>
+                          {isActive && (
+                            <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 rounded-full bg-[#E5007D] px-1.5 text-[8px] font-black uppercase text-white shadow">
+                              NOW
+                            </span>
+                          )}
+                          {isNext && !isActive && (
+                            <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 rounded-full bg-[#8CC63F] px-1.5 text-[8px] font-black uppercase text-white shadow">
+                              NEXT
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Current category label */}
+                  <div className="mt-1.5 flex items-center justify-between px-0.5">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                      Showing players from:
+                    </span>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-[#E5007D]">
+                      {activeCategory || 'All'}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
